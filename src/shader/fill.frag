@@ -8,7 +8,7 @@
 #define TYPE_TEXTURE 3
 
 #define TEXTYPE_RGBA 1
-#define TEXTYPE_A 1
+#define TEXTYPE_A 2
 
 layout(constant_id = 0) const bool edgeAntiAlias = true;
 
@@ -50,7 +50,7 @@ layout(set = 0, binding = 0) uniform UBO
 
 } ubo;
 
-layout(set = 0, binding = 1) uniform sampler2D tex; //for texture drawing
+// layout(set = 0, binding = 1) uniform sampler2D tex; //for texture drawing
 
 //CODE
 float sdroundrect(vec2 pt, vec2 ext, float rad)
@@ -69,34 +69,47 @@ float scissorMask(vec2 pos)
 
 float strokeMask()
 {
-	return min(1.0, (1.0 - abs(itexcoord.x * 2.0 - 1.0)) * ubo.paintMat[0][3]) * min(1.0, itexcoord.y);
+	return min(1.0, (1.0 - abs(itexcoord.x * 1.0 - 0.5)) * 1.0f) * min(1.0, itexcoord.y);
 }
 
 void main()
 {
-	float scissorAlpha = scissorMask(ipos);
-	if(scissorAlpha < 0.01) discard;
+	// ocolor = vec4(1.0, 0.0, 0.0, 1.0);
+	// return;
 
-	if(ubo.type == TYPE_COLOR)
-	{
-		ocolor = ubo.innerColor;
-		ocolor *= scissorAlpha;
+	// float scissorAlpha = scissorMask(ipos);
+	//if(scissorAlpha < 0.5) dis
 
-		if(edgeAntiAlias) ocolor *= strokeMask();
-	}
-	else if(ubo.type == TYPE_GRADIENT)
-	{
-		vec2 pt = (mat3(ubo.paintMat) * vec3(ipos, 1.0)).xy;
-		float ft = ubo.scissorMat[1][3];
-		float fac = sdroundrect(pt, vec2(ubo.paintMat[3]), ubo.scissorMat[0][3]) / ubo.scissorMat[1][3];
-		ocolor = mix(ubo.innerColor, ubo.outerColor, clamp(0.5 + fac, 0.0, 1.0));
-		ocolor *= scissorAlpha;
-		if(edgeAntiAlias) ocolor *= strokeMask();
-	}
-	else if(ubo.type == TYPE_TEXTURE)
-	{
-		ocolor = texture(tex, itexcoord);
-		if(ubo.texType == TEXTYPE_RGBA) ocolor = vec4(ocolor.xyz * ocolor.w, ocolor.w);
-		else if(ubo.texType == TEXTYPE_A) ocolor = vec4(ocolor.x);
-	}
+	//if(strokeMask() < -1.0) discard;
+
+	// if(ubo.type == TYPE_COLOR)
+	// {
+	// 	ocolor = ubo.innerColor;
+	// 	//ocolor *= scissorAlpha;
+	// 	if(edgeAntiAlias) ocolor *= strokeMask();
+	// }
+	// else if(ubo.type == TYPE_GRADIENT)
+	// {
+	// 	// vec2 pt = (mat3(ubo.paintMat) * vec3(ipos, 1.0)).xy;
+	// 	// float ft = ubo.scissorMat[1][3];
+	// 	// float fac = sdroundrect(pt, vec2(ubo.paintMat[3]), ubo.scissorMat[0][3]) / ubo.scissorMat[1][3];
+	// 	// ocolor = mix(ubo.innerColor, ubo.outerColor, clamp(0.5 + fac, 0.0, 1.0));
+	// 	//ocolor *= scissorAlpha;
+	// 	//if(edgeAntiAlias) ocolor *= strokeMask();
+	// }
+	// else if(ubo.type == TYPE_TEXTURE)
+	// {
+	// 	ocolor = texture(tex, itexcoord);
+	// 	if(ubo.texType == TEXTYPE_RGBA) ocolor = vec4(ocolor.xyz * ocolor.w, ocolor.w);
+	// 	else if(ubo.texType == TEXTYPE_A) ocolor = vec4(ocolor.x);
+	// }
+
+	//float alpha = 1.0 - clamp(20.0 * abs(itexcoord.x - 0.5) + abs(itexcoord.y - 1.0), 0.0, 1.0);
+	//float alpha = strokeMask();
+	float alpha = 1.0f;
+	ocolor = alpha * ubo.innerColor;
+
+	// if((abs(itexcoord.x - 0.5) > 0.01) || (abs(itexcoord.y - 1.0) > 0.01)) ocolor = vec4(1.0, 0.0, 0.0, 1.0);
+	// else ocolor = ubo.innerColor;
+	//ocolor *= strokeMask();
 }

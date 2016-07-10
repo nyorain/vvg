@@ -1,4 +1,5 @@
 #include <vgk.hpp>
+#include <texture.hpp>
 
 #include <nanovg/nanovg.h>
 
@@ -14,6 +15,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
+#include <iterator>
 
 //implementation TODO:
 //-try to use push constants for uniform (check maxPushConstantsSize)
@@ -150,7 +152,7 @@ void RenderImpl::build(unsigned int id, const vpp::RenderPassInstance& ini)
 std::vector<vk::ClearValue> RenderImpl::clearValues(unsigned int id)
 {
 	std::vector<vk::ClearValue> ret(2, vk::ClearValue{});
-	ret[0].color = {{0.f, 1.f, 0.f, 0.5f}};
+	ret[0].color = {{0.f, 0.f, 0.f, 1.0f}};
 	ret[1].depthStencil = {1.f, 0};
 	return ret;
 }
@@ -169,7 +171,7 @@ NVGcontext* create(const vpp::SwapChain& swapChain)
 
 	auto params = nvgContextImpl;
 	params.userPtr = renderer;
-	params.edgeAntiAlias = 1;
+	params.edgeAntiAlias = 0;
 
 	auto ret = nvgCreateInternal(&params);
 
@@ -186,12 +188,17 @@ void destroy(NVGcontext& context)
 struct Renderer::Impl
 {
 	vpp::Buffer uniformBuffer;
-	vpp::Buffer vertexBuffer;
+
+	std::vector<vpp::Buffer> vertexBuffer;
+	std::size_t vertexCount = 0;
 
 	vk::DescriptorPool descriptorPool;
 	vpp::DescriptorSet descriptorSet;
 
-	vpp::GraphicsPipeline pipeline;
+	vpp::GraphicsPipeline fanPipeline;
+	vpp::GraphicsPipeline stripPipeline;
+	vpp::GraphicsPipeline trianglesPipeline;
+	int bound = 0; //1: fan, 2: strip, 3: triangles
 
 	vpp::CommandBuffer cmdBuffer {};
 	vpp::SwapChainRenderer renderer {};
@@ -201,7 +208,7 @@ struct Renderer::Impl
 Renderer::Renderer(const vpp::SwapChain& swapChain)
 {
 	constexpr auto uniformSize = 8 + 4 * 2 + 16 * 2 + 64 * 2; //see fill.frag
-	constexpr auto vertexSize = 1024 * 1024; //1MB, just a guess
+	constexpr auto vertexSize = 5 * 1024 * 1024; //5MB, just a guess
 	auto& dev = swapChain.device();
 
 	impl_ = std::make_unique<Impl>();
@@ -219,12 +226,21 @@ Renderer::Renderer(const vpp::SwapChain& swapChain)
 	//it will be resized(recreated) if needed.
 	bufInfo.usage = vk::BufferUsageBits::vertexBuffer;
 	bufInfo.size = vertexSize;
-	impl_->vertexBuffer = vpp::Buffer(dev, bufInfo, vk::MemoryPropertyBits::hostVisible);
+	impl_->vertexBuffer.emplace_back(dev, bufInfo, vk::MemoryPropertyBits::hostVisible);
 
 	//create the graphics pipeline
 	vpp::GraphicsPipeline::CreateInfo pipelineInfo;
 	pipelineInfo.states = {{0.f, 0.f, float(swapChain.size().width), float(swapChain.size().height)}};
 	pipelineInfo.renderPass = impl_->renderPass;
+	pipelineInfo.states.rasterization.cullMode = vk::CullModeBits::none;
+	pipelineInfo.states.inputAssembly.topology = vk::PrimitiveTopology::triangleFan;
+	pipelineInfo.states.blendAttachments[0].blendEnable = true;
+	pipelineInfo.states.blendAttachments[0].colorBlendOp = vk::BlendOp::add;
+	pipelineInfo.states.blendAttachments[0].srcColorBlendFactor = vk::BlendFactor::srcAlpha;
+	pipelineInfo.states.blendAttachments[0].dstColorBlendFactor = vk::BlendFactor::oneMinusSrcAlpha;
+	pipelineInfo.states.blendAttachments[0].srcAlphaBlendFactor = vk::BlendFactor::one;
+	pipelineInfo.states.blendAttachments[0].dstAlphaBlendFactor = vk::BlendFactor::zero;
+	pipelineInfo.states.blendAttachments[0].alphaBlendOp = vk::BlendOp::add;
 
 	//layouts
 	//vertex
@@ -232,8 +248,9 @@ Renderer::Renderer(const vpp::SwapChain& swapChain)
 	pipelineInfo.vertexBufferLayouts = {vertexLayout};
 
 	std::vector<vpp::DescriptorBinding> descriptorBindings {
-		{vk::DescriptorType::uniformBuffer, vk::ShaderStageBits::vertex},
-		{vk::DescriptorType::uniformBuffer, vk::ShaderStageBits::fragment}
+		{vk::DescriptorType::uniformBuffer,
+			vk::ShaderStageBits::vertex | vk::ShaderStageBits::fragment},
+		{vk::DescriptorType::combinedImageSampler, vk::ShaderStageBits::fragment}
 	};
 
 	vpp::DescriptorSetLayout descLayout(dev, descriptorBindings);
@@ -255,20 +272,50 @@ Renderer::Renderer(const vpp::SwapChain& swapChain)
 
 	pipelineInfo.shader.stage("bin/shaders/fill.frag.spv", {vk::ShaderStageBits::fragment, &specInfo});
 
-	impl_->pipeline = vpp::GraphicsPipeline(dev, pipelineInfo);
+	impl_->fanPipeline = vpp::GraphicsPipeline(dev, pipelineInfo);
 
+	pipelineInfo.states.inputAssembly.topology = vk::PrimitiveTopology::triangleStrip;
+	impl_->stripPipeline = vpp::GraphicsPipeline(dev, pipelineInfo);
+
+	pipelineInfo.states.inputAssembly.topology = vk::PrimitiveTopology::triangleList;
+	impl_->trianglesPipeline = vpp::GraphicsPipeline(dev, pipelineInfo);
+
+	//command buffer
 	impl_->cmdBuffer = dev.commandProvider().get(0, vk::CommandPoolCreateBits::resetCommandBuffer,
 		vk::CommandBufferLevel::secondary);
 
 	//descriptor
+	vk::DescriptorPoolSize typeCounts[2];
+	typeCounts[0].type = vk::DescriptorType::uniformBuffer;
+	typeCounts[0].descriptorCount = 1;
+
+	typeCounts[1].type = vk::DescriptorType::combinedImageSampler;
+	typeCounts[1].descriptorCount = 1;
+
+	vk::DescriptorPoolCreateInfo poolInfo;
+	poolInfo.poolSizeCount = 2;
+	poolInfo.pPoolSizes = typeCounts;
+	poolInfo.maxSets = 2;
+
+	impl_->descriptorPool = vk::createDescriptorPool(dev, poolInfo);
+
+	//set
+	impl_->descriptorSet = vpp::DescriptorSet(descLayout, impl_->descriptorPool);
 
 	//create the swap chain renderer
 	auto impl = std::make_unique<RenderImpl>();
 	impl->renderer = this;
 	impl->swapChainRenderer = &impl_->renderer;
-	vpp::SwapChainRenderer::CreateInfo info {impl_->renderPass, 0,
-		{{vpp::ViewableImage::defaultColor2D()}}};
+	vpp::SwapChainRenderer::CreateInfo info {impl_->renderPass, 0, {}};
 	impl_->renderer = vpp::SwapChainRenderer(swapChain, info, std::move(impl));
+
+	impl_->vertexBuffer.back().assureMemory();
+	impl_->uniformBuffer.assureMemory();
+
+	//write desc
+	vpp::DescriptorSetUpdate update(impl_->descriptorSet);
+	update.uniform({{impl_->uniformBuffer, 0, uniformSize}});
+	update.apply();
 }
 
 Renderer::~Renderer()
@@ -304,15 +351,20 @@ void Renderer::viewport(int width, int height)
 	vk::beginCommandBuffer(impl_->cmdBuffer, info);
 
 	vk::cmdBindPipeline(impl_->cmdBuffer, vk::PipelineBindPoint::graphics,
-		impl_->pipeline);
+		impl_->fanPipeline);
 	vk::cmdBindDescriptorSets(impl_->cmdBuffer, vk::PipelineBindPoint::graphics,
-		impl_->pipeline.vkPipelineLayout(), 0, {impl_->descriptorSet}, {});
+		impl_->fanPipeline.vkPipelineLayout(), 0, {impl_->descriptorSet}, {});
+	vk::cmdBindVertexBuffers(impl_->cmdBuffer, 0, {impl_->vertexBuffer.back()}, {{0}});
+	impl_->bound = 1;
 }
 
 void Renderer::cancel()
 {
 	vk::endCommandBuffer(impl_->cmdBuffer);
 	//dont render here
+
+	impl_->vertexBuffer.clear();
+	impl_->vertexCount = 0;
 }
 
 void Renderer::flush()
@@ -320,44 +372,175 @@ void Renderer::flush()
 	//end the frame
 	vk::endCommandBuffer(impl_->cmdBuffer);
 	impl_->renderer.renderBlock();
+
+	impl_->vertexBuffer.clear();
+	impl_->vertexCount = 0;
+
+	vk::BufferCreateInfo bufInfo;
+	bufInfo.usage = vk::BufferUsageBits::vertexBuffer;
+	bufInfo.size = 1024 * 1024 * 5;
+	impl_->vertexBuffer.emplace_back(device(), bufInfo, vk::MemoryPropertyBits::hostVisible);
+	vertexBuffer(0);
 }
 
 void Renderer::fill(const NVGpaint& paint, const NVGscissor& scissor, float fringe, const float* bounds,
 	const vpp::Range<NVGpath>& paths)
 {
+	std::cout << "fill\n";
+	parsePaint(paint, scissor);
+	if(impl_->bound != 1)
+	{
+		vk::cmdBindPipeline(impl_->cmdBuffer, vk::PipelineBindPoint::graphics,
+			impl_->fanPipeline);
+		impl_->bound = 1;
+	}
 
+	for(auto& path : paths)
+	{
+		auto offset = vertexBuffer(path.nstroke + path.nfill);
+		auto map = impl_->vertexBuffer.back().memoryMap();
+		std::memcpy(map.ptr() + offset * sizeof(NVGvertex), path.fill,
+			path.nfill * sizeof(NVGvertex));
+		// std::memcpy(map.ptr() + (offset + path.nfill) * sizeof(NVGvertex), path.stroke,
+		// 	path.nstroke * sizeof(NVGvertex));
+		// vk::cmdDraw(impl_->cmdBuffer, path.nfill + path.nstroke, 1, 0, 0);
+		vk::cmdDraw(impl_->cmdBuffer, path.nfill, 1, offset, 0);
+
+		// impl_->vertexCount += path.nstroke + path.nfill;
+		impl_->vertexCount += path.nfill;
+	}
 }
 void Renderer::stroke(const NVGpaint& paint, const NVGscissor& scissor, float fringe, float strokeWidth,
 	const vpp::Range<NVGpath>& paths)
 {
+	std::cout << "stroke\n";
+	parsePaint(paint, scissor);
+	if(impl_->bound != 2)
+	{
+		vk::cmdBindPipeline(impl_->cmdBuffer, vk::PipelineBindPoint::graphics,
+			impl_->stripPipeline);
+		impl_->bound = 2;
+	}
 
+	for(auto& path : paths)
+	{
+		auto offset = vertexBuffer(path.nstroke);
+		auto map = impl_->vertexBuffer.back().memoryMap();
+		std::memcpy(map.ptr() + offset * sizeof(NVGvertex), path.stroke,
+			path.nstroke * sizeof(NVGvertex));
+		vk::cmdDraw(impl_->cmdBuffer, path.nstroke, 1, offset, 0);
+
+		impl_->vertexCount += path.nstroke;
+	}
 }
 void Renderer::triangles(const NVGpaint& paint, const NVGscissor& scissor,
 	const vpp::Range<NVGvertex>& verts)
 {
+	std::cout << "triangles\n";
+	parsePaint(paint, scissor);
+	if(impl_->bound != 3)
+	{
+		vk::cmdBindPipeline(impl_->cmdBuffer, vk::PipelineBindPoint::graphics,
+			impl_->trianglesPipeline);
+		impl_->bound = 3;
+	}
 
+	auto offset = vertexBuffer(verts.size());
+	auto map = impl_->vertexBuffer.back().memoryMap();
+	std::memcpy(map.ptr() + offset * sizeof(NVGvertex), verts.data(),
+		verts.size() * sizeof(NVGvertex));
+	vk::cmdDraw(impl_->cmdBuffer, verts.size(), 1, offset, 0);
+
+	impl_->vertexCount += verts.size();
 }
 
 void Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor)
 {
+	auto fringe = 0.0f;
+
 	static constexpr auto typeColor = 1;
 	static constexpr auto typeGradient = 2;
 	static constexpr auto typeTexture = 3;
 
+	static constexpr auto texTypeRGBA = 1;
+	static constexpr auto texTypeA = 2;
+
+	using Mat4 = float[4][4];
+
 	vpp::BufferUpdate update(impl_->uniformBuffer);
-	auto type = 0u;
+	update.add(float(900), float(500)); //viewSize
+
 	if(paint.image)
 	{
-		type = typeTexture;
+		update.add(typeTexture); //type
+		update.add(texTypeRGBA); //texType
 	}
 	else if(paint.innerColor == paint.outerColor)
 	{
-		type = typeColor;
+		update.add(typeColor);
+		update.add(0u);
 	}
 	else
 	{
-		type = typeTexture;
+		update.add(typeGradient);
+		update.add(0u);
 	}
+
+	//colors
+	update.add(vpp::raw(paint.innerColor.rgba));
+	update.add(vpp::raw(paint.outerColor.rgba));
+
+	//mats
+	float invxform[6];
+
+	//scissor
+	Mat4 scissorMat {0};
+	if (scissor.extent[0] < -0.5f || scissor.extent[1] < -0.5f)
+	{
+		scissorMat[3][0] = 1.0f;
+		scissorMat[3][1] = 1.0f;
+		scissorMat[3][2] = 1.0f;
+		scissorMat[3][3] = 1.0f;
+	}
+	else
+	{
+		nvgTransformInverse(invxform, scissor.xform);
+
+		scissorMat[0][0] = invxform[0];
+		scissorMat[0][1] = invxform[1];
+		scissorMat[1][0] = invxform[2];
+		scissorMat[1][1] = invxform[3];
+		scissorMat[2][0] = invxform[4];
+		scissorMat[2][1] = invxform[5];
+		scissorMat[2][2] = 1.0f;
+
+		scissorMat[3][0] = scissor.extent[0];
+		scissorMat[3][1] = scissor.extent[1];
+		scissorMat[3][2] = std::sqrt(scissor.xform[0]*scissor.xform[0] + scissor.xform[2]*
+			scissor.xform[2]) / fringe;
+		scissorMat[3][3] = std::sqrt(scissor.xform[1]*scissor.xform[1] + scissor.xform[3]*
+			scissor.xform[3]) / fringe;
+	}
+
+	update.add(vpp::raw(scissorMat));
+
+	//paint
+	Mat4 paintMat {};
+	nvgTransformInverse(invxform, paint.xform);
+	paintMat[0][0] = invxform[0];
+	paintMat[0][1] = invxform[1];
+	paintMat[1][0] = invxform[2];
+	paintMat[1][1] = invxform[3];
+	paintMat[2][0] = invxform[4];
+	paintMat[2][1] = invxform[5];
+	paintMat[2][2] = 1.0f;
+
+	update.add(vpp::raw(paintMat));
+}
+
+const vpp::Device& Renderer::device() const
+{
+	return impl_->uniformBuffer.device();
 }
 
 const vpp::CommandBuffer& Renderer::commandBuffer() const
@@ -372,6 +555,26 @@ Texture* Renderer::texture(unsigned int id)
 
 	if(it == textures_.end()) return nullptr;
 	return &(*it);
+}
+
+std::size_t Renderer::vertexBuffer(std::size_t needed)
+{
+	static constexpr std::size_t minSize = 5 * 1024 * 1024; //5MB
+
+	if((impl_->vertexCount + needed) * sizeof(NVGvertex) > impl_->vertexBuffer.size())
+	{
+		vk::BufferCreateInfo bufferInfo;
+		bufferInfo.usage = vk::BufferUsageBits::vertexBuffer;
+		bufferInfo.size = std::max(minSize, needed * sizeof(NVGvertex));
+		impl_->vertexBuffer.emplace_back(device(), bufferInfo, vk::MemoryPropertyBits::hostVisible);
+		impl_->vertexCount = 0;
+
+		impl_->vertexBuffer.back().assureMemory();
+
+		vk::cmdBindVertexBuffers(impl_->cmdBuffer, 0, {impl_->vertexBuffer.back()}, {{0}});
+	}
+
+	return impl_->vertexCount;
 }
 
 void Renderer::initRenderPass(const vpp::SwapChain& swapChain)
@@ -394,20 +597,20 @@ void Renderer::initRenderPass(const vpp::SwapChain& swapChain)
 	colorReference.layout = vk::ImageLayout::colorAttachmentOptimal;
 
 	//depth from own depth stencil
-	attachments[1].format = vk::Format::d16UnormS8Uint;
-	attachments[1].samples = vk::SampleCountBits::e1;
-	attachments[1].loadOp = vk::AttachmentLoadOp::clear;
-	attachments[1].storeOp = vk::AttachmentStoreOp::store;
-	attachments[1].stencilLoadOp = vk::AttachmentLoadOp::dontCare;
-	attachments[1].stencilStoreOp = vk::AttachmentStoreOp::dontCare;
-	attachments[1].initialLayout = vk::ImageLayout::undefined;
-	attachments[1].finalLayout = vk::ImageLayout::undefined;
+	// attachments[1].format = vk::Format::d16UnormS8Uint;
+	// attachments[1].samples = vk::SampleCountBits::e1;
+	// attachments[1].loadOp = vk::AttachmentLoadOp::clear;
+	// attachments[1].storeOp = vk::AttachmentStoreOp::store;
+	// attachments[1].stencilLoadOp = vk::AttachmentLoadOp::dontCare;
+	// attachments[1].stencilStoreOp = vk::AttachmentStoreOp::dontCare;
+	// attachments[1].initialLayout = vk::ImageLayout::undefined;
+	// attachments[1].finalLayout = vk::ImageLayout::undefined;
 	// attachments[1].initialLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 	// attachments[1].finalLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 
-	vk::AttachmentReference depthReference;
-	depthReference.attachment = 1;
-	depthReference.layout = vk::ImageLayout::depthStencilAttachmentOptimal;
+	// vk::AttachmentReference depthReference;
+	// depthReference.attachment = 1;
+	// depthReference.layout = vk::ImageLayout::depthStencilAttachmentOptimal;
 
 	//only subpass
 	vk::SubpassDescription subpass;
@@ -418,12 +621,13 @@ void Renderer::initRenderPass(const vpp::SwapChain& swapChain)
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorReference;
 	subpass.pResolveAttachments = nullptr;
-	subpass.pDepthStencilAttachment = &depthReference;
+	// subpass.pDepthStencilAttachment = &depthReference;
+	 subpass.pDepthStencilAttachment = nullptr;
 	subpass.preserveAttachmentCount = 0;
 	subpass.pPreserveAttachments = nullptr;
 
 	vk::RenderPassCreateInfo renderPassInfo;
-	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.attachmentCount = 1;
 	renderPassInfo.pAttachments = attachments;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;

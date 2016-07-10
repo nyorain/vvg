@@ -36,22 +36,8 @@ void destroy(NVGcontext& ctx);
 class Renderer;
 Renderer* renderer(const NVGcontext& ctx);
 
-class Texture
-{
-public:
-	Texture(Renderer& renderer, unsigned int xid, unsigned int format, unsigned int w,
-		unsigned int h, int flags, const std::uint8_t& data);
-	~Texture();
 
-	unsigned int id() const { return id_; }
-	unsigned int width() const { return width_; }
-	unsigned int height() const { return height_; }
-
-protected:
-	unsigned int id_;
-	unsigned int width_;
-	unsigned int height_;
-};
+class Texture;
 
 class Renderer
 {
@@ -75,8 +61,10 @@ public:
 	Texture* texture(unsigned int id);
 	void parsePaint(const NVGpaint& paint, const NVGscissor& scissor);
 	void initRenderPass(const vpp::SwapChain& swapChain);
+	std::size_t vertexBuffer(std::size_t needed); //returns the offset
 
 	const vpp::CommandBuffer& commandBuffer() const;
+	const vpp::Device& device() const;
 
 protected:
 	unsigned int texID_ = 0;

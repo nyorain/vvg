@@ -73,7 +73,7 @@ HWND createWindow()
 int main()
 {
 	auto window = createWindow();
-	auto vulkanContext = vpp::createContext(window, {width, height});
+	auto vulkanContext = vpp::createContext(window, {width, height, vk::DebugReportBitsEXT::error});
 	auto nvgContext = vgk::create(vulkanContext.swapChain());
 
 	while(1)
@@ -91,7 +91,31 @@ int main()
 	    }
 
 		nvgBeginFrame(nvgContext, width, height, width / (float)height);
+		//nvgRect(nvgContext, 10, 10, 100, 100);
+		nvgMoveTo(nvgContext, 10, 10);
+		nvgLineTo(nvgContext, 10, 100);
+		nvgLineTo(nvgContext, 100, 100);
+		nvgQuadTo(nvgContext, 100, 50, 500, 120);
+		nvgClosePath(nvgContext);
+
+		nvgFillColor(nvgContext, nvgRGBAf(0.5, 0.8, 0.7, 0.7));
+		nvgFill(nvgContext);
+
+		nvgStrokeColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
+		nvgStroke(nvgContext);
+		
 		nvgEndFrame(nvgContext);
+
+		// auto vg = nvgContext;
+		// nvgBeginFrame(vg, 800, 500, 800 / double(500));
+		// nvgBeginPath(vg);
+		// nvgMoveTo(vg, 100, 200);
+		// nvgLineTo(vg, 300, 400);
+		// nvgLineTo(vg, 0, 200);
+		// nvgClosePath(vg);
+		// nvgStrokeColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
+		// nvgStroke(vg);
+		// nvgEndFrame(vg);
 	}
 
 	vgk::destroy(*nvgContext);
