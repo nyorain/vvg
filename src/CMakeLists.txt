@@ -1,5 +1,5 @@
 #vkg
-add_library(vgk renderer.cpp texture.cpp ../external/nanovg/src/nanovg.c)
+add_library(vgk renderer.cpp ../external/nanovg/src/nanovg.c)
 target_link_libraries(vgk vpp ${vulkan-lib})
 
 add_dependencies(vgk nanovg_ep vpp_ep)

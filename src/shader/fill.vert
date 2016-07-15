@@ -23,5 +23,5 @@ void main()
 	//normalize the vertex coords from ([0, width], [0, height]) to ([-1, 1], [-1, 1]).
 	//unlike in opengl there is no y inversion needed.
 	gl_Position = vec4(2.0 * ivertex / ubo.viewSize - 1.0, 0.0, 1.0);
-	//gl_Position = vec4(2.0 * ivertex / vec2(900, 500) - 1.0, 0.0, 1.0);
+	// gl_Position = vec4(2.0 * ivertex / vec2(900, 500) - 1.0, 0.0, 1.0);
 }

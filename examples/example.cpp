@@ -1,5 +1,4 @@
 #include <vpp/backend/win32.hpp>
-#include <vpp/defs.hpp>
 #include <nanovg/nanovg.h>
 #include <vgk.hpp>
 
@@ -73,8 +72,11 @@ HWND createWindow()
 int main()
 {
 	auto window = createWindow();
-	auto vulkanContext = vpp::createContext(window, {width, height, vk::DebugReportBitsEXT::error});
-	auto nvgContext = vgk::create(vulkanContext.swapChain());
+	auto vulkanContext = vpp::createContext(window, {width, height});
+	// auto vulkanContext = vpp::createContext(window, {width, height, {}});
+	auto nvgContext = vgk::create(vulkanContext.swapChain(), true);
+
+	auto font = nvgCreateFont(nvgContext, "sans", "Roboto-Regular.ttf");
 
 	while(1)
 	{
@@ -98,12 +100,20 @@ int main()
 		nvgQuadTo(nvgContext, 100, 50, 500, 120);
 		nvgClosePath(nvgContext);
 
+		nvgFontFaceId(nvgContext, font);
+		nvgFontSize(nvgContext, 100.f);
+		nvgText(nvgContext, 200, 200, "Hello VG World", nullptr);
+
 		nvgFillColor(nvgContext, nvgRGBAf(0.5, 0.8, 0.7, 0.7));
 		nvgFill(nvgContext);
 
+		nvgStrokeWidth(nvgContext, 4.f);
+		//nvgMiterLimit(nvgContext, 5.f);
+		//nvgLineCap(nvgContext, NVG_SQUARE);
+		//nvgLineJoin(nvgContext, NVG_ROUND);
 		nvgStrokeColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
 		nvgStroke(nvgContext);
-		
+
 		nvgEndFrame(nvgContext);
 
 		// auto vg = nvgContext;

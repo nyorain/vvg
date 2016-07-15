@@ -20,6 +20,10 @@ public:
 	unsigned int id() const { return id_; }
 	unsigned int width() const { return width_; }
 	unsigned int height() const { return height_; }
+	const vpp::ViewableImage& image() const { return image_; }
+
+	void update(unsigned int x, unsigned int y, unsigned int w, unsigned int h,
+		const std::uint8_t& data);
 
 protected:
 	unsigned int id_;
@@ -27,6 +31,7 @@ protected:
 	unsigned int height_;
 
 	vpp::ViewableImage image_;
+	unsigned int components_;
 };
 
 }
