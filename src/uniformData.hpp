@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vpp/buffer.hpp>
+#include <vpp/bufferOps.hpp>
 #include <vpp/pipeline.hpp>
 #include <vpp/descriptor.hpp>
 

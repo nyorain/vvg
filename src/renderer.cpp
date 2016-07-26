@@ -1,4 +1,4 @@
-#include <vgk.hpp>
+#include <nanovg_vk.h>
 #include <uniformData.hpp>
 
 #include <nanovg/nanovg.h>
@@ -12,6 +12,7 @@
 #include <vpp/descriptor.hpp>
 #include <vpp/renderer.hpp>
 #include <vpp/renderPass.hpp>
+#include <vpp/bufferOps.hpp>
 #include <vpp/vk.hpp>
 #include <vpp/utility/range.hpp>
 
@@ -204,13 +205,13 @@ Renderer::Renderer(const vpp::SwapChain& swapChain, bool antiAlias)
 	vk::SamplerCreateInfo samplerInfo;
 	samplerInfo.magFilter = vk::Filter::linear;
 	samplerInfo.minFilter = vk::Filter::linear;
-	samplerInfo.mipmapMode = vk::SamplerMipmapMode::nearest;
+	samplerInfo.mipmapMode = vk::SamplerMipmapMode::linear;
 	samplerInfo.addressModeU = vk::SamplerAddressMode::repeat;
 	samplerInfo.addressModeV = vk::SamplerAddressMode::repeat;
 	samplerInfo.addressModeW = vk::SamplerAddressMode::repeat;
 	samplerInfo.mipLodBias = 0;
 	samplerInfo.anisotropyEnable = true;
-	samplerInfo.maxAnisotropy = 16;
+	samplerInfo.maxAnisotropy = 8;
 	samplerInfo.compareEnable = false;
 	samplerInfo.compareOp = {};
 	samplerInfo.minLod = 0;
@@ -366,10 +367,10 @@ void Renderer::flush()
 	}
 
 	//update
-	vpp::BufferUpdate update(uniformBuffer_);
+	vpp::BufferUpdate update(uniformBuffer_, vpp::BufferLayout::std140);
 	for(auto& data : drawDatas_)
 	{
-		auto offset = update.bufferOffset();
+		auto offset = update.offset();
 		update.add(vpp::raw(data.uniformData));
 
 		data.descriptorSet = vpp::DescriptorSet(descriptorLayout_, descriptorPool_);
@@ -387,7 +388,7 @@ void Renderer::flush()
 	update.apply()->finish();
 
 	//vertex
-	vpp::BufferUpdate vupdate(vertexBuffer_);
+	vpp::BufferUpdate vupdate(vertexBuffer_, vpp::BufferLayout::std140);
 	vupdate.add(vpp::raw(*vertices_.data(), vertices_.size()));
 	vupdate.apply()->finish();
 
@@ -402,7 +403,6 @@ void Renderer::flush()
 void Renderer::fill(const NVGpaint& paint, const NVGscissor& scissor, float fringe,
 	const float* bounds, const vpp::Range<NVGpath>& paths)
 {
-	std::cout << "fill\n";
 	auto& drawData = parsePaint(paint, scissor, fringe, fringe);
 	drawData.paths.reserve(paths.size());
 
@@ -424,7 +424,6 @@ void Renderer::fill(const NVGpaint& paint, const NVGscissor& scissor, float frin
 void Renderer::stroke(const NVGpaint& paint, const NVGscissor& scissor, float fringe,
 	float strokeWidth, const vpp::Range<NVGpath>& paths)
 {
-	std::cout << "stroke\n";
 	auto& drawData = parsePaint(paint, scissor, fringe, strokeWidth);
 	drawData.paths.reserve(paths.size());
 
@@ -439,7 +438,6 @@ void Renderer::stroke(const NVGpaint& paint, const NVGscissor& scissor, float fr
 void Renderer::triangles(const NVGpaint& paint, const NVGscissor& scissor,
 	const vpp::Range<NVGvertex>& verts)
 {
-	std::cout << "triangles " << verts.size() << "\n";
 	auto& drawData = parsePaint(paint, scissor, 1.f, 1.f);
 
 	drawData.triangleOffset = vertices_.size();
@@ -470,6 +468,8 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 
 		data.uniformData.type = typeTexture;
 		if(tex) data.uniformData.texType = tex->texType();
+
+		data.texture = paint.image;
 	}
 	else if(paint.innerColor == paint.outerColor)
 	{
@@ -596,7 +596,6 @@ void Renderer::record(vk::CommandBuffer cmdBuffer)
 				bound = 3;
 			}
 
-			std::cout << "tri: " << data.triangleCount << "\n";
 			vk::cmdDraw(cmdBuffer, data.triangleCount, 1, data.triangleOffset, 0);
 		}
 	}
@@ -764,6 +763,7 @@ const NVGparams nvgContextImpl =
 Texture::Texture(Renderer& renderer, unsigned int xid, unsigned int format, unsigned int w,
 	unsigned int h, int flags, const std::uint8_t& data) : id_(xid), width_(w), height_(h)
 {
+	std::cout << "image: " << w << " " << h << "\n";
 	vk::Format vkformat = vk::Format::r8g8b8a8Unorm;
 	components_ = 4;
 
@@ -782,27 +782,40 @@ Texture::Texture(Renderer& renderer, unsigned int xid, unsigned int format, unsi
 	info.imgInfo.tiling = vk::ImageTiling::linear;
 	info.imgInfo.format = vkformat;
 	info.viewInfo.format = vkformat;
-	info.memoryFlags = vk::MemoryPropertyBits::hostVisible;
+	info.imgInfo.usage = vk::ImageUsageBits::transferDst | vk::ImageUsageBits::sampled;
+	// info.memoryFlags = vk::MemoryPropertyBits::hostVisible;
 	image_ = vpp::ViewableImage(renderer.device(), info);
 
 	//XXX TODO: make param pointer since it might be nullptr
 	if(&data)
 	{
-		vpp::fill(image_.image(), data, vk::ImageLayout::preinitialized, extent,
-			{vk::ImageAspectBits::color, 0, 0, 1}, w * h * components_);
+		vpp::fill(image_.image(), data, vkformat, vk::ImageLayout::preinitialized, extent,
+			{vk::ImageAspectBits::color, 0, 0});
 	}
 }
 
 void Texture::update(unsigned int x, unsigned int y, unsigned int w, unsigned int h,
 	const std::uint8_t& data)
 {
-	// std::cout << "update: " << x << " " << y << " " << w << " " << h << "\n";
+	w = 512;
+	h = 512;
+
+	std::cout << "update: " << x << " " << y << " " << w << " " << h << "\n";
 	vk::Extent3D extent {w, h, 1};
-	vk::Extent3D offset {x, y, 0};
+	vk::Offset3D offset {int(x), int(y), 0};
+
+
+	std::cout << "siiize: " << w * h * components_ << "\n";
+	std::cout << image_.image().size() << "\n";
+
+	auto format = vk::Format::r8g8b8a8Unorm;
+	if(components_ == 1) format = vk::Format::r8Unorm;
+
+	std::vector<std::uint8_t> data1(w * h * components_, 200);
 
 	///XXX: offset!
-	vpp::fill(image_.image(), data, vk::ImageLayout::preinitialized, extent,
-		{vk::ImageAspectBits::color, 0, 0, 1}, w * h * components_);
+	vpp::fill(image_.image(), data, format, vk::ImageLayout::preinitialized, extent,
+		{vk::ImageAspectBits::color, 0, 0}, offset)->finish();
 }
 
 }

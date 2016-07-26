@@ -12,6 +12,12 @@ ExternalProject_Add(vpp_ep
 	SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vpp"
 	CMAKE_ARGS ${ExternalProjectCMakeArgs})
 
+ExternalProject_Add_Step(vpp_ep forceconfigure
+    COMMAND ${CMAKE_COMMAND} -E echo "Force configure of vpp"
+    DEPENDEES update
+    DEPENDERS configure
+    ALWAYS 1)
+
 add_custom_command(
 	OUTPUT "${CMAKE_BINARY_DIR}/external/install/include/nanovg/nanovg.h"
 	COMMAND ${CMAKE_COMMAND} -E copy
