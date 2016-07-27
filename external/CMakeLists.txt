@@ -14,8 +14,8 @@ ExternalProject_Add(vpp_ep
 
 ExternalProject_Add_Step(vpp_ep forceconfigure
     COMMAND ${CMAKE_COMMAND} -E echo "Force configure of vpp"
-    DEPENDEES update
     DEPENDERS configure
+	DEPENDERS download
     ALWAYS 1)
 
 add_custom_command(

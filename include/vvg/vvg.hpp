@@ -15,6 +15,9 @@
 
 typedef struct NVGcontext NVGcontext;
 typedef struct NVGvertex NVGvertex;
+typedef struct NVGpaint NVGpaint;
+typedef struct NVGpath NVGpath;
+typedef struct NVGscissor NVGscissor;
 
 ///Vulkan Vector Graphics
 namespace vvg
@@ -22,20 +25,21 @@ namespace vvg
 
 struct DrawData;
 
+//TODO: make work async, e.g. let texture store a work pointer and only finish it when used.
 ///Represents a vulkan texture.
 ///Can be retrieved from the nanovg texture handle using the associated renderer.
 class Texture : public vpp::ResourceReference<Texture>
 {
 public:
 	Texture(const vpp::Device& dev, unsigned int xid, const vk::Extent2D& size,
-		const std::uint8_t* data = nullptr);
+		vk::Format format, const std::uint8_t* data = nullptr);
 	~Texture() = default;
 
 	Texture(Texture&& other) noexcept = default;
 	Texture& operator=(Texture&& other) noexcept = default;
 
 	///Updates the texture data at the given position and the given size.
-	void update(const vk::Offset2D& offset, const vk::Extent2D& size, const std::uint8_t* data);
+	void update(const vk::Offset2D& offset, const vk::Extent2D& size, const std::uint8_t& data);
 
 	unsigned int id() const { return id_; }
 	unsigned int width() const { return width_; }
@@ -53,6 +57,7 @@ protected:
 	unsigned int height_;
 };
 
+//TODO: how to handle swapChain resizes?
 ///The Renderer class implements the nanovg backend for vulkan using the vpp library.
 ///It can be used to gain more control over the rendering e.g. to just record the required
 ///commands to a given command buffer instead of executing them.
@@ -66,17 +71,58 @@ class Renderer : public vpp::ResourceReference<Renderer>
 {
 public:
 	Renderer(const vpp::SwapChain& swapChain);
-	Renderer(const vpp::Framebuffer framebuffer);
+	Renderer(const vpp::Framebuffer& framebuffer);
 	~Renderer();
 
-	Texture* texture(unsigned int id) const;
+	///Returns the texture with the given id.
+	const Texture* texture(unsigned int id) const;
+	Texture* texture(unsigned int id);
+
+	///Fills the given paths with the given paint.
+	void fill(const NVGpaint& paint, const NVGscissor& scissor, float fringe, const float* bounds,
+		const vpp::Range<NVGpath>& paths);
+
+	///Stokres the given paths with the given paint.
+	void stroke(const NVGpaint& paint, const NVGscissor& scissor, float fringe, float strokeWidth,
+		const vpp::Range<NVGpath>& paths);
+
+	///Renders the given vertices as triangle lists with the given paint.
+	void triangles(const NVGpaint& paint, const NVGscissor& scissor,
+		const vpp::Range<NVGvertex>& verts);
+
+	///Start a new frame. Sets the viewport parameters.
+	///Effectively resets all stored draw commands.
+	///Will invalidate all commandBuffers that were recorded before.
+	void start(unsigned int width, unsigned int height);
+
+	///Cancel the current frame.
+	void cancel();
+
+	///Flushs the current frame, i.e. renders it on the render target.
+	///This call will block until the device has finished its commands.
+	void flush();
+
+	///Records all given draw commands since the last start frame call to the given
+	///command buffer. Note that the caller must assure that the commandBuffer is in a valid state
+	///for this Renderer to record its commands (i.e. recording state, matching renderPass).
+	///All commandBuffers will remain valid until the next draw (fill/stroie/triangles) call
+	///or until start is called.
+	void record(vk::CommandBuffer cmdBuffer);
+
+	///Creates a texture for the given parameters and returns its id.
+	unsigned int createTexture(vk::Format format, unsigned int width, unsigned int height,
+		const std::uint8_t* data = nullptr);
+
+	///Deletes the texture with the given id.
+	///If the given id could not be found returns false.
+	bool deleteTexture(unsigned int id);
 
 	const vpp::Sampler& sampler() const { return sampler_; }
 	const vpp::RenderPass& renderPass() const { return renderPass_; }
 	const vpp::Buffer& uniformBuffer() const { return uniformBuffer_; }
 	const vpp::Buffer& vertexBuffer() const { return vertexBuffer_; }
 	const vpp::DescriptorPool& descriptorPool() const { return descriptorPool_; }
-	const vpp::DescriptorSetLayout& descriptorSetLayout() const { return descriptorSetLayout_; }
+	const vpp::DescriptorSetLayout& descriptorLayout() const { return descriptorLayout_; }
 	const vpp::PipelineLayout& pipelineLayout() const { return pipelineLayout_; }
 
 	const vpp::SwapChain* swapChain() const { return swapChain_; }
@@ -88,7 +134,11 @@ public:
 	const auto& resourceRef() const { return renderPass_; } //renderPass since always valid
 
 protected:
-	struct DrawData;
+	void init();
+	void initRenderPass(const vpp::Device& dev, vk::Format attachment);
+
+	DrawData& parsePaint(const NVGpaint& paint, const NVGscissor& scissor, float fringe,
+		float strokeWidth);
 
 protected:
 	const vpp::SwapChain* swapChain_ = nullptr; //if rendering on swapChain
@@ -113,14 +163,17 @@ protected:
 	vpp::RenderPass renderPass_;
 
 	vpp::DescriptorPool descriptorPool_;
-	vpp::DescriptorSetLayout descriptorSetLayout_;
-	unsigned int descriptorPoolSize_; //current maximal draw calls count
+	vpp::DescriptorSetLayout descriptorLayout_;
+	unsigned int descriptorPoolSize_ {}; //current maximal draw calls count
 
 	vpp::PipelineLayout pipelineLayout_;
 	vpp::Pipeline fanPipeline_;
 	vpp::Pipeline stripPipeline_;
 	vpp::Pipeline listPipeline_;
 	unsigned int bound_ = 0;
+
+	//settings
+	bool edgeAA_ = true;
 };
 
 ///Creates the nanovg context for the previoiusly created renderer object.
@@ -129,7 +182,7 @@ protected:
 NVGcontext* createContext(std::unique_ptr<Renderer> renderer);
 
 ///Creates the nanovg context for a given SwapChain.
-NVGcontext* createContext(const vpp::SwapChain& dev);
+NVGcontext* createContext(const vpp::SwapChain& swapChain);
 
 ///Creates the nanovg context for a given framebuffer.
 NVGcontext* createContext(const vpp::Framebuffer& fb);
@@ -142,8 +195,8 @@ void destroyContext(const NVGcontext& context);
 ///Returns the underlaying renderer object from a nanovg context.
 ///Note that passing a nanovg context that was not created by this library results in undefined
 ///behaviour.
-const Renderer* getRenderer(const NVGcontext& context);
-Renderer* getRenderer(NVGcontext& context);
+const Renderer& getRenderer(const NVGcontext& context);
+Renderer& getRenderer(NVGcontext& context);
 
 }
 
