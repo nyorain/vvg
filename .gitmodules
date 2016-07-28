@@ -1,6 +1,4 @@
-[submodule "external/nanovg"]
-	path = external/nanovg
-	url = https://github.com/memononen/nanovg.git
 [submodule "external/vpp"]
 	path = external/vpp
 	url = https://github.com/nyorain/vpp.git
+
