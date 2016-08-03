@@ -1,6 +1,6 @@
 ### Vulkan Vector Graphics
 
-vvg is an __[nanovg]__ backend using the vulkan api licensed under the __MIT License__.
+vvg is a __[nanovg]__ backend using the [vulkan] api licensed under the __MIT License__.
 It offers 2 interfaces:
 
 - A [high level interface] that can be accessed from plain C99 and just provides the nanovg backend.
@@ -9,7 +9,8 @@ It offers 2 interfaces:
 The implementation itself is written in C++14 and uses the [vpp] library. It also makes use of the [bintoheader] tool
 to include the compiles spirv binaries directly into the source code. See for example [src/shader/headers/fill.frag.h].
 
-Currently vvg is in an pre-alpha state, but the first alpha is expected to be released soon. Note that it was not well tested yet, so there will be probably many bugs and issues on different drivers.
+Currently vvg is in an pre-alpha state, but the first alpha is expected to be released soon. Note that it is not well tested yet, so there will be probably bugs and issues on different drivers. Was only tested/developed using MinGW64 (gcc 5/6) with an AMD R9 270x.
+The example only has support for Windows at the moment (since it creates a window for rendering).
 Any bug reports, contributions and ideas are highly appreciated.
 
 If you make a pull request, do not forget to append yourself to the contributors section, no matter how small the actual contribution is.
@@ -33,6 +34,7 @@ For the C api make sure that you include vulkan.h BEFORE including the vvg heade
 
 *nyorain*
 
+[vulkan]: https://www.khronos.org/vulkan/
 [high level interface]: src/nanovg_vk.h
 [nanovg_vk.h]: src/nanovg_vk.h
 [lower level interface]: src/vvg.hpp
