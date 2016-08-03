@@ -2,7 +2,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.1.0)
 PROJECT(vvg)
 
 option(BuildExamples "Build the render examples" ON)
-option(BuildShaders "Rebuild the shader spirv headers" ON)
+option(BuildShaders "Rebuild the shader spirv headers" OFF)
 option(Shared "Build the library shared" ON)
 
 set(CMAKE_BUILD_TYPE Debug)
