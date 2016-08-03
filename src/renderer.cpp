@@ -1,18 +1,23 @@
-#include <vvg/vvg.hpp>
-#include <vvg/nanovg_vk.h>
+#include "vvg.hpp"
+#include "nanovg_vk.h"
+#include "nanovg.h"
 
-#include <nanovg/nanovg.h>
-
+// vpp
 #include <vpp/bufferOps.hpp>
 #include <vpp/graphicsPipeline.hpp>
 #include <vpp/swapChain.hpp>
 #include <vpp/framebuffer.hpp>
 #include <vpp/vk.hpp>
 
+// stl
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
 #include <iterator>
+
+// shader header
+#include "shader/headers/fill.frag.h"
+#include "shader/headers/fill.vert.h"
 
 namespace vvg
 {
@@ -191,8 +196,8 @@ void Renderer::init()
 	specInfo.dataSize = 4;
 	specInfo.pData = &antiAliasing;
 
-	builder.shader.stage("bin/shaders/fill.vert.spv", {vk::ShaderStageBits::vertex});
-	builder.shader.stage("bin/shaders/fill.frag.spv", {vk::ShaderStageBits::fragment, &specInfo});
+	builder.shader.stage(fill_vert_data, {vk::ShaderStageBits::vertex});
+	builder.shader.stage(fill_frag_data, {vk::ShaderStageBits::fragment, &specInfo});
 
 	fanPipeline_ = builder.build();
 

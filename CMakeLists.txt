@@ -1,7 +1,9 @@
 CMAKE_MINIMUM_REQUIRED(VERSION 3.1.0)
-PROJECT(vkg)
+PROJECT(vvg)
 
-option(build-examples "Build the render examples" ON)
+option(BuildExamples "Build the render examples" ON)
+option(BuildShaders "Rebuild the shader spirv headers" ON)
+option(Shared "Build the library shared" ON)
 
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_STANDARD 14)
@@ -35,9 +37,12 @@ else()
 endif()
 
 add_subdirectory(src)
-add_subdirectory(external)
 add_subdirectory(src/shader)
 
-if(build-examples)
+if(BuildShaders)
+	add_subdirectory(external)
+endif()
+
+if(BuildExamples)
 	add_subdirectory(examples)
 endif()
