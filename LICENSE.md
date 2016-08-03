@@ -1,4 +1,4 @@
-##vgk license
+## vgk and vpp
 
 Copyright © 2016 nyorain
 
@@ -24,8 +24,8 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 
 
-##nanovg license
-__This library redistributes, contains and uses code fragments of nanovg (see external/nanovg).__
+## nanovg
+__This library redistributes, contains and uses code fragments of nanovg.__
 nanovg is licensed under the following license:
 
 Copyright (c) 2013 Mikko Mononen memon@inside.org
