@@ -54,7 +54,6 @@ layout(set = 0, binding = 0) uniform UBO
 
 layout(set = 0, binding = 1) uniform sampler2D tex; //for texture drawing
 
-//CODE
 float sdroundrect(vec2 pt, vec2 ext, float rad)
 {
 	vec2 ext2 = ext - vec2(rad, rad);

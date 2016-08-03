@@ -80,9 +80,9 @@ namespace vpp
 template<> struct VulkanType<vvg::Vec2> : public VulkanTypeVec2 {};
 template<> struct VulkanType<vvg::Vec3> : public VulkanTypeVec3 {};
 template<> struct VulkanType<vvg::Vec4> : public VulkanTypeVec4 {};
-template<> struct VulkanType<vvg::Mat2> : public VulkanTypeMatrix<2, 2> {};
-template<> struct VulkanType<vvg::Mat3> : public VulkanTypeMatrix<3, 3> {};
-template<> struct VulkanType<vvg::Mat4> : public VulkanTypeMatrix<4, 4> {};
+template<> struct VulkanType<vvg::Mat2> : public VulkanTypeMatrix<2, 2, true> {};
+template<> struct VulkanType<vvg::Mat3> : public VulkanTypeMatrix<3, 3, true> {};
+template<> struct VulkanType<vvg::Mat4> : public VulkanTypeMatrix<4, 4, true> {};
 
 template<> struct VulkanType<vvg::UniformData>
 {
@@ -123,6 +123,7 @@ Renderer::Renderer(const vpp::SwapChain& swapChain) : swapChain_(&swapChain)
 	renderer_ = {swapChain, info, std::move(impl)};
 }
 
+
 Renderer::Renderer(const vpp::Framebuffer& framebuffer) : framebuffer_(&framebuffer)
 {
 	//TODO: implement alternative flush function.
@@ -142,9 +143,9 @@ void Renderer::init()
 	samplerInfo.magFilter = vk::Filter::linear;
 	samplerInfo.minFilter = vk::Filter::linear;
 	samplerInfo.mipmapMode = vk::SamplerMipmapMode::linear;
-	samplerInfo.addressModeU = vk::SamplerAddressMode::repeat;
-	samplerInfo.addressModeV = vk::SamplerAddressMode::repeat;
-	samplerInfo.addressModeW = vk::SamplerAddressMode::repeat;
+	samplerInfo.addressModeU = vk::SamplerAddressMode::clampToEdge;
+	samplerInfo.addressModeV = vk::SamplerAddressMode::clampToEdge;
+	samplerInfo.addressModeW = vk::SamplerAddressMode::clampToEdge;
 	samplerInfo.mipLodBias = 0;
 	samplerInfo.anisotropyEnable = true;
 	samplerInfo.maxAnisotropy = 8;
@@ -187,7 +188,7 @@ void Renderer::init()
 
 	//shader
 	//the fragment shader has a constant for antialiasing
-	std::uint32_t antiAliasing = 1;
+	std::uint32_t antiAliasing = edgeAA_;
 	vk::SpecializationMapEntry entry {0, 0, 4};
 
 	vk::SpecializationInfo specInfo;
@@ -289,8 +290,10 @@ void Renderer::flush()
 	vpp::BufferUpdate update(uniformBuffer_, vpp::BufferLayout::std140);
 	for(auto& data : drawDatas_)
 	{
+		update.alignUniform();
+
 		auto offset = update.offset();
-		update.add(vpp::raw(data.uniformData));
+		update.add(data.uniformData);
 
 		data.descriptorSet = {descriptorLayout_, descriptorPool_};
 
@@ -379,7 +382,6 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 	drawDatas_.emplace_back();
 
 	auto& data = drawDatas_.back();
-
 	data.uniformData.viewSize = {float(width_), float(height_)};
 
 	if(paint.image)
@@ -550,6 +552,7 @@ void Renderer::initRenderPass(const vpp::Device& dev, vk::Format attachment)
 	colorReference.layout = vk::ImageLayout::colorAttachmentOptimal;
 
 	//stencil attachment
+	//will not be used as depth buffer
 	attachments[1].format = vk::Format::s8Uint;
 	attachments[1].samples = vk::SampleCountBits::e1;
 	attachments[1].loadOp = vk::AttachmentLoadOp::clear;
@@ -601,26 +604,39 @@ Texture::Texture(const vpp::Device& dev, unsigned int xid, const vk::Extent2D& s
 	info.imgInfo.extent = extent;
 	info.imgInfo.initialLayout = vk::ImageLayout::preinitialized;
 	info.imgInfo.tiling = vk::ImageTiling::linear;
+
 	info.imgInfo.format = format;
 	info.viewInfo.format = format;
-	info.imgInfo.usage = vk::ImageUsageBits::transferDst | vk::ImageUsageBits::sampled;
+
+	info.imgInfo.usage = vk::ImageUsageBits::sampled;
+	info.memoryFlags = vk::MemoryPropertyBits::hostVisible;
+
+	// info.imgInfo.usage = vk::ImageUsageBits::transferDst | vk::ImageUsageBits::sampled;
 	viewableImage_ = {dev, info};
 
+	///TODO: remove finish here and check where the bug comes from. probably vpp submit.cpp
+	vpp::changeLayout(viewableImage_.image(), vk::ImageLayout::preinitialized,
+		vk::ImageLayout::general, vk::ImageAspectBits::color)->finish();
+
 	if(data)
-	{
-		vpp::fill(viewableImage_.image(), *data, format, vk::ImageLayout::preinitialized, extent,
-			{vk::ImageAspectBits::color, 0, 0});
-	}
+		vpp::fill(viewableImage_.image(), *data, format, vk::ImageLayout::general, extent,
+			{vk::ImageAspectBits::color, 0, 0})->finish();
 }
 
 void Texture::update(const vk::Offset2D& offset, const vk::Extent2D& extent,
 	const std::uint8_t& data)
 {
-	vk::Extent3D iextent {extent.width, extent.height, 1};
+	//TODO: really only update the given offset/extent
+	//would need an extra data copy
+	//or modify vpp::fill(Image) to also accept non tightly packed data
+	//or just fill it manually...
+	
+	vk::Extent3D iextent {width() - offset.x, height() - offset.y, 1};
 	vk::Offset3D ioffset {offset.x, offset.y, 0};
 
-	vpp::fill(viewableImage_.image(), data, format(), vk::ImageLayout::preinitialized, iextent,
-		{vk::ImageAspectBits::color, 0, 0}, ioffset)->finish();
+	// this function is buggy atm
+	fill(viewableImage_.image(), data, format(), vk::ImageLayout::general, iextent,
+		{vk::ImageAspectBits::color, 0, 0})->finish();
 }
 
 
@@ -646,7 +662,7 @@ void RenderImpl::frame(unsigned int id)
 }
 
 
-//The NVGcontext backend implementation which just calls the Renderer/Texture functions
+//The NVGcontext backend implementation which just calls the Renderer/Texture member functions
 namespace
 {
 
@@ -733,7 +749,7 @@ void renderDelete(void* uptr)
 const NVGparams nvgContextImpl =
 {
 	nullptr,
-	0,
+	1,
 	renderCreate,
 	createTexture,
 	deleteTexture,
@@ -809,4 +825,3 @@ void vvgDestroy(const NVGcontext* ctx)
 {
 
 }
-

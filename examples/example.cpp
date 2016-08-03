@@ -1,6 +1,6 @@
 #include <vpp/backend/win32.hpp>
-#include <nanovg/nanovg.h>
-#include <vvg/vvg.hpp>
+#include <nanovg.h>
+#include <vvg.hpp>
 #include <iostream>
 
 constexpr auto width = 900;
@@ -98,26 +98,22 @@ int main()
 	    }
 
 		nvgBeginFrame(nvgContext, width, height, width / (float)height);
-		//nvgRect(nvgContext, 10, 10, 100, 100);
 		nvgMoveTo(nvgContext, 10, 10);
-		nvgLineTo(nvgContext, 10, 100);
-		nvgLineTo(nvgContext, 100, 100);
-		nvgQuadTo(nvgContext, 100, 50, 500, 120);
+		nvgLineTo(nvgContext, 10, 400);
+		nvgLineTo(nvgContext, 100, 400);
+		nvgQuadTo(nvgContext, 100, 50, 400, 120);
+		nvgLineTo(nvgContext, 450, 10);
 		nvgClosePath(nvgContext);
-
-		nvgFontFaceId(nvgContext, font);
-		nvgFontSize(nvgContext, 20.f);
-		nvgText(nvgContext, 200, 200, "Hello VG World", nullptr);
 
 		nvgFillColor(nvgContext, nvgRGBAf(0.5, 0.8, 0.7, 0.7));
 		nvgFill(nvgContext);
 
-		nvgStrokeWidth(nvgContext, 2.f);
-		//nvgMiterLimit(nvgContext, 5.f);
-		nvgLineCap(nvgContext, NVG_ROUND);
-		nvgLineJoin(nvgContext, NVG_ROUND);
-		nvgStrokeColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
-		nvgStroke(nvgContext);
+		nvgBeginPath(nvgContext);
+		nvgFontFaceId(nvgContext, font);
+		nvgFontSize(nvgContext, 100.f);
+		nvgFontBlur(nvgContext, .8f);
+		nvgFillColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
+		nvgTextBox(nvgContext, 200, 200, width - 200, "Hello Vulkan Vector Graphics World", nullptr);
 
 		nvgEndFrame(nvgContext);
 
@@ -129,6 +125,12 @@ int main()
 		// nvgLineTo(vg, 0, 200);
 		// nvgClosePath(vg);
 		// nvgStrokeColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
+		// nvgStrokeWidth(nvgContext, 2.f);
+		// nvgMiterLimit(nvgContext, 5.f);
+		// nvgLineCap(nvgContext, NVG_ROUND);
+		// nvgLineJoin(nvgContext, NVG_ROUND);
+		// nvgStrokeColor(nvgContext, nvgRGBAf(1.0, 1.0, 1.0, 1.0));
+
 		// nvgStroke(vg);
 		// nvgEndFrame(vg);
 	}

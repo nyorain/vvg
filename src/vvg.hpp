@@ -39,6 +39,8 @@ public:
 	Texture& operator=(Texture&& other) noexcept = default;
 
 	///Updates the texture data at the given position and the given size.
+	///Note that the given data is NOT tightly packed but must hold data for the whole texture
+	///extent.
 	void update(const vk::Offset2D& offset, const vk::Extent2D& size, const std::uint8_t& data);
 
 	unsigned int id() const { return id_; }

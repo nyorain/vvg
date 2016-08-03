@@ -1,3 +1,8 @@
+# refresh submodules
+execute_process(
+	COMMAND git submodule update --remote --merge --init
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+	
 include(ExternalProject)
 set(ExternalProjectCMakeArgs
 	-DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/install
