@@ -37,10 +37,10 @@ else()
 endif()
 
 add_subdirectory(src)
-add_subdirectory(src/shader)
+add_subdirectory(external)
 
 if(BuildShaders)
-	add_subdirectory(external)
+	add_subdirectory(src/shader)
 endif()
 
 if(BuildExamples)
