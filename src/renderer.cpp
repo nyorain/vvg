@@ -623,11 +623,9 @@ void Texture::update(const vk::Offset2D& offset, const vk::Extent2D& extent,
 	//would need an extra data copy
 	//or modify vpp::fill(Image) to also accept non tightly packed data
 	//or just fill it manually...
+	// vk::Offset3D ioffset {offset.x, offset.y, 0};
 	
 	vk::Extent3D iextent {width() - offset.x, height() - offset.y, 1};
-	vk::Offset3D ioffset {offset.x, offset.y, 0};
-
-	// this function is buggy atm
 	fill(viewableImage_.image(), data, format(), vk::ImageLayout::general, iextent,
 		{vk::ImageAspectBits::color, 0, 0})->finish();
 }
@@ -682,6 +680,7 @@ vvg::Renderer& resolve(void* ptr)
 
 int renderCreate(void* uptr)
 {
+	return 1;
 }
 
 int createTexture(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data)
@@ -711,11 +710,12 @@ int getTextureSize(void* uptr, int image, int* w, int* h)
 {
 	auto& renderer = resolve(uptr);
 	auto* tex = renderer.texture(image);
-	if(!tex) throw std::logic_error("vkg::impl::updateTexture: invalid image");
+	if(!tex) return 0;
 
-	//todo: first check pointers
+	//TODO: first check pointers?
 	*w = tex->width();
 	*h = tex->width();
+	return 1;
 }
 void viewport(void* uptr, int width, int height)
 {
