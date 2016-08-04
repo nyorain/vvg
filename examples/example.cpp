@@ -1,6 +1,7 @@
 #include <vpp/backend/win32.hpp>
 #include <nanovg.h>
-#include <vvg.hpp>
+// #include <vvg.hpp>
+#include <nanovg_vk.hpp>
 #include <iostream>
 
 constexpr auto width = 900;
@@ -79,7 +80,17 @@ int main()
 	auto window = createWindow();
 	// auto vulkanContext = vpp::createContext(window, {width, height});
 	auto vulkanContext = vpp::createContext(window, {width, height, {}});
-	auto nvgContext = vvg::createContext(vulkanContext.swapChain());
+	// auto nvgContext = vvg::createContext(vulkanContext.swapChain());
+	
+	VVGContextDescription info;
+	info.device = (VkDevice)vulkanContext.device().vkDevice();
+	info.instance = (VkInstance)vulkanContext.vkInstance();
+	info.swapchain = (VkSwapchainKHR)vulkanContext.swapChain().vkHandle();
+	info.swapchainSize = (VkExtent2D)vulkanContext.swapChain().size();
+	info.swapchainFormat = (VkFormat)vulkanContext.swapChain().vkFormat();
+	info.phDev = (VkPhysicalDevice)vulkanContext.vkPhysicalDevice();
+	info.queue = (VkQueue)vulkanContext.device.queues()[0].vkHandle();
+	info.queueFamily = (VkQueue)vulkanContext.device.queues()[0].family();
 
 	auto font = nvgCreateFont(nvgContext, "sans", "Roboto-Regular.ttf");
 

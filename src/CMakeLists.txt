@@ -5,9 +5,11 @@ else()
 	add_library(vvg renderer.cpp nanovg.c)
 endif()
 
-target_link_libraries(vvg vpp ${vulkan-lib})
-
 add_dependencies(vvg vpp_ep)
+
+#link to vulkan and vpp
+target_link_libraries(vvg vpp ${VULKAN_LIBRARY})
+target_include_directories(vvg PUBLIC ${VULKAN_INCLUDE_DIR})
 
 #copy runtime files
 add_custom_command(

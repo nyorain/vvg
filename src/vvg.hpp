@@ -73,8 +73,7 @@ class Renderer : public vpp::ResourceReference<Renderer>
 {
 public:
 	Renderer(const vpp::SwapChain& swapChain);
-	Renderer(const vpp::Framebuffer& framebuffer);
-	~Renderer();
+	virtual ~Renderer();
 
 	///Returns the texture with the given id.
 	const Texture* texture(unsigned int id) const;
@@ -186,9 +185,6 @@ NVGcontext* createContext(std::unique_ptr<Renderer> renderer);
 ///Creates the nanovg context for a given SwapChain.
 NVGcontext* createContext(const vpp::SwapChain& swapChain);
 
-///Creates the nanovg context for a given framebuffer.
-NVGcontext* createContext(const vpp::Framebuffer& fb);
-
 ///Destroys a nanovg context that was created by this library.
 ///Note that passing a nanovg context that was not created by this library results in undefined
 ///behaviour.
@@ -203,6 +199,8 @@ Renderer& getRenderer(NVGcontext& context);
 }
 
 #endif //header guard
+
+//TODO: implement renderer constructor for framebuffer
 
 // Copyright © 2016 nyorain
 //

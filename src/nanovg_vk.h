@@ -1,8 +1,5 @@
 //XXX NOTE to the user of this header: Include vulkan.h before including this file.
 
-//Standalone C99 header to create a nanovg vulkan backend.
-//License at the bottom of this file.
-
 #ifndef VVG_INCLUDE_NANOVG_VK_H
 #define VVG_INCLUDE_NANOVG_VK_H
 
@@ -14,12 +11,22 @@ extern "C" {
 
 typedef struct NVGcontext NVGcontext;
 
+///Description for a vulkan nanovg context.
+typedef struct VVGContextDescription
+{
+	VkInstance instance; //the instance to create the context for
+	VkPhysicalDevice phDev; //the physical device to create the context for
+	VkDevice device; //the device to create the context for. Must match given instance and phDev
+	VkQueue queue;  //the queue that should be use for rendering. Must support graphcis ops.
+	unsigned int queueFamily; //the queue family of the given queue.
+	VkSwapchainKHR swapchain; //the swapchain on which should be rendered.
+	vk::Extent2D swapchainSize; //the size of the given swapchain
+	VkFormat swapchainFormat; //the format of the given swapchain
+} VVGContextDescription;
+
 ///This function can be called to create a new nanovg vulkan context that will render
 ///on the given swapChain.
-NVGcontext* vvgCreateFromSwapchain(VkDevice device, VkSwapchainKHR swapChain, VkFormat format);
-
-///Creates a nanovg context that will render into the given framebuffer.
-NVGcontext* vvgCreateFromFramebuffer(unsigned int w, unsigned int h, VkFramebuffer fb);
+NVGcontext* vvgCreate(const VVGContextDescription* description);
 
 ///Destroys the given nanovg context.
 void vvgDestroy(const NVGcontext* ctx);

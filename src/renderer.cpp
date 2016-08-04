@@ -124,13 +124,6 @@ Renderer::Renderer(const vpp::SwapChain& swapChain) : swapChain_(&swapChain)
 }
 
 
-Renderer::Renderer(const vpp::Framebuffer& framebuffer) : framebuffer_(&framebuffer)
-{
-	//TODO: implement alternative flush function.
-	initRenderPass(framebuffer.device(), vk::Format::r8g8b8a8Unorm); ///XXX: format
-	init();
-}
-
 Renderer::~Renderer()
 {
 
@@ -659,6 +652,22 @@ void RenderImpl::frame(unsigned int id)
 	swapChainRenderer->record(id);
 }
 
+//class that derives vvg::Renderer for the C implementation.
+using NonOwnedDevicePtr = std::unique_ptr<vpp::NonOwned<vpp::Device>>;
+class RendererCImpl : public Renderer
+{
+public:
+	RendererCImpl(NonOwnedDevicePtr dev, vpp::NonOwned<vpp::SwapChain>&& swapChain) 
+			: Renderer(swapChain), dev_(std::move(dev)), swapChain_(std::move(swapChain)) {}
+
+	virtual ~RendererCImpl() = default;
+
+protected:
+	NonOwnedDevicePtr dev_;
+	vpp::NonOwned<vpp::SwapChain> swapChain_;
+};
+
+
 }
 
 
@@ -786,11 +795,6 @@ NVGcontext* createContext(const vpp::SwapChain& swapChain)
 	return createContext(std::make_unique<Renderer>(swapChain));
 }
 
-NVGcontext* createContext(const vpp::Framebuffer& framebuffer)
-{
-	return createContext(std::make_unique<Renderer>(framebuffer));
-}
-
 void destroyContext(const NVGcontext& context)
 {
 	auto ctx = const_cast<NVGcontext*>(&context);
@@ -810,18 +814,26 @@ Renderer& getRenderer(NVGcontext& context)
 }
 
 //implementation of the C api
-NVGcontext* vvgCreateFromSwapchain(VkDevice device, VkSwapchainKHR swapChain, VkFormat format)
+NVGcontext* vvgCreate(const VVGContextDescription* descr)
 {
-	// vpp::Device device(instance, physicalDevice, device);
-	// auto renderer = vvg::make_unique<vvg::Renderer>(device, swapChain);
-	// return vvg::createContext(std::move(renderer));
+	auto vkInstance = (vk::Instance)descr->instance;
+	auto vkPhDev = (vk::PhysicalDevice)descr->phDev;
+	auto vkDev = (vk::Device)descr->device;
+	auto vkQueue = (vk::Queue)descr->queue;
+	auto vkSwapChain = (vk::SwapchainKHR)descr->swapchain;
+	auto vkFormat = (vk::Format)descr->swapchainFormat;
+
+	vvg::NonOwnedDevicePtr dev(new vpp::NonOwned<vpp::Device>(vkInstance,
+		vkPhDev, vkDev, {{vkQueue, descr->queueFamily}}));
+	vpp::NonOwned<vpp::SwapChain> swapChain(*dev, vkSwapChain, {}, descr->swapchainSize, 
+		vkFormat);
+
+	auto renderer = std::make_unique<vvg::RendererCImpl>(std::move(dev), std::move(swapChain));
+	return vvg::createContext(std::move(renderer));
 }
 
-NVGcontext* vvgCreateFromFramebuffer(unsigned int w, unsigned int h, VkFramebuffer fb)
+void vvgDestroy(const NVGcontext* context)
 {
-}
-
-void vvgDestroy(const NVGcontext* ctx)
-{
-
+	auto ctx = const_cast<NVGcontext*>(context);
+	nvgDeleteInternal(ctx);
 }
