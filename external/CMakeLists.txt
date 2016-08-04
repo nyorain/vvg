@@ -16,10 +16,5 @@ set(ExternalProjectCMakeArgs
 
 ExternalProject_Add(vpp_ep
 	SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vpp"
-	CMAKE_ARGS ${ExternalProjectCMakeArgs})
-
-ExternalProject_Add_Step(vpp_ep forceconfigure
-    COMMAND ${CMAKE_COMMAND} -E echo "Force configure of vpp"
-    DEPENDERS build
-	DEPENDERS configure
-    ALWAYS 1)
+	CMAKE_ARGS ${ExternalProjectCMakeArgs}
+	BUILD_ALWAYS 1)

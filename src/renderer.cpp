@@ -482,7 +482,7 @@ Texture* Renderer::texture(unsigned int id)
 void Renderer::record(vk::CommandBuffer cmdBuffer)
 {
 	int bound = 0;
-	vk::cmdBindVertexBuffers(cmdBuffer, 0, {vertexBuffer_}, {{0}});
+	vk::cmdBindVertexBuffers(cmdBuffer, 0, {vertexBuffer_}, {0});
 
 	for(auto& data : drawDatas_)
 	{
