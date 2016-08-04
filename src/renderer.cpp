@@ -624,8 +624,8 @@ void Texture::update(const vk::Offset2D& offset, const vk::Extent2D& extent,
 	//or modify vpp::fill(Image) to also accept non tightly packed data
 	//or just fill it manually...
 	// vk::Offset3D ioffset {offset.x, offset.y, 0};
-	
-	vk::Extent3D iextent {width() - offset.x, height() - offset.y, 1};
+
+	vk::Extent3D iextent {width(), height(), 1};
 	fill(viewableImage_.image(), data, format(), vk::ImageLayout::general, iextent,
 		{vk::ImageAspectBits::color, 0, 0})->finish();
 }
@@ -652,22 +652,26 @@ void RenderImpl::frame(unsigned int id)
 
 //class that derives vvg::Renderer for the C implementation.
 using NonOwnedDevicePtr = std::unique_ptr<vpp::NonOwned<vpp::Device>>;
+using NonOwnedSwapChainPtr = std::unique_ptr<vpp::NonOwned<vpp::SwapChain>>;
+
 class RendererCImpl : public Renderer
 {
 public:
-	RendererCImpl(NonOwnedDevicePtr dev, vpp::NonOwned<vpp::SwapChain>&& swapChain) 
-			: Renderer(swapChain), dev_(std::move(dev)), swapChain_(std::move(swapChain)) {}
+	RendererCImpl(NonOwnedDevicePtr dev, NonOwnedSwapChainPtr swapChain)
+		: Renderer(*swapChain), dev_(std::move(dev)), swapChain_(std::move(swapChain)) {}
 
-	virtual ~RendererCImpl() = default;
+	virtual ~RendererCImpl()
+	{
+		//first destruct the Renderer since it may depend on the device and swapchain
+		Renderer::operator=({});
+	}
 
 protected:
 	NonOwnedDevicePtr dev_;
-	vpp::NonOwned<vpp::SwapChain> swapChain_;
+	NonOwnedSwapChainPtr swapChain_;
 };
 
-
 }
-
 
 //The NVGcontext backend implementation which just calls the Renderer/Texture member functions
 namespace
@@ -775,7 +779,6 @@ const NVGparams nvgContextImpl =
 
 }
 
-
 //implementation of the C++ create api
 namespace vvg
 {
@@ -822,11 +825,15 @@ NVGcontext* vvgCreate(const VVGContextDescription* descr)
 	auto vkQueue = (vk::Queue)descr->queue;
 	auto vkSwapChain = (vk::SwapchainKHR)descr->swapchain;
 	auto vkFormat = (vk::Format)descr->swapchainFormat;
+	auto vkExtent = (const vk::Extent2D&)descr->swapchainSize;
 
 	vvg::NonOwnedDevicePtr dev(new vpp::NonOwned<vpp::Device>(vkInstance,
 		vkPhDev, vkDev, {{vkQueue, descr->queueFamily}}));
-	vpp::NonOwned<vpp::SwapChain> swapChain(*dev, vkSwapChain, {}, descr->swapchainSize, 
-		vkFormat);
+
+	//NOTE that this constructs the swapchain with an invalid surface parameter and it
+	//can therefore not be reiszed.
+	vvg::NonOwnedSwapChainPtr swapChain(new vpp::NonOwned<vpp::SwapChain>(*dev,
+		vkSwapChain, {}, vkExtent, vkFormat));
 
 	auto renderer = std::make_unique<vvg::RendererCImpl>(std::move(dev), std::move(swapChain));
 	return vvg::createContext(std::move(renderer));

@@ -72,6 +72,7 @@ protected:
 class Renderer : public vpp::ResourceReference<Renderer>
 {
 public:
+	Renderer() = default;
 	Renderer(const vpp::SwapChain& swapChain);
 	virtual ~Renderer();
 
@@ -137,6 +138,9 @@ public:
 protected:
 	void init();
 	void initRenderPass(const vpp::Device& dev, vk::Format attachment);
+
+	//for the c implementation
+	Renderer& operator=(Renderer&& other) = default;
 
 	DrawData& parsePaint(const NVGpaint& paint, const NVGscissor& scissor, float fringe,
 		float strokeWidth);

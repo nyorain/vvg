@@ -20,7 +20,7 @@ typedef struct VVGContextDescription
 	VkQueue queue;  //the queue that should be use for rendering. Must support graphcis ops.
 	unsigned int queueFamily; //the queue family of the given queue.
 	VkSwapchainKHR swapchain; //the swapchain on which should be rendered.
-	vk::Extent2D swapchainSize; //the size of the given swapchain
+	VkExtent2D swapchainSize; //the size of the given swapchain
 	VkFormat swapchainFormat; //the format of the given swapchain
 } VVGContextDescription;
 
