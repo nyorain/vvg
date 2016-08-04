@@ -20,11 +20,12 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/external)
 include_directories(${CMAKE_CURRENT_BINARY_DIR}/external/install/include)
 link_directories(${CMAKE_CURRENT_BINARY_DIR}/external/install/lib)
 
+add_subdirectory(external)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/external/vpp/src/cmake")
 find_package(Vulkan REQUIRED)
 
 add_subdirectory(src)
-add_subdirectory(external)
 
 if(BuildShaders)
 	add_subdirectory(src/shader)
