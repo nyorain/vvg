@@ -406,7 +406,7 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 	float invxform[6];
 
 	//scissor
-	float scissorMat[4][4] {0};
+	float scissorMat[4][4] {};
 	if (scissor.extent[0] < -0.5f || scissor.extent[1] < -0.5f)
 	{
 		scissorMat[3][0] = 1.0f;
@@ -640,7 +640,7 @@ void RenderImpl::build(unsigned int id, const vpp::RenderPassInstance& ini)
 std::vector<vk::ClearValue> RenderImpl::clearValues(unsigned int id)
 {
 	std::vector<vk::ClearValue> ret(2, vk::ClearValue{});
-	ret[0].color = {{0.f, 0.f, 0.f, 1.0f}};
+	ret[0].color = {0.f, 0.f, 0.f, 1.0f};
 	ret[1].depthStencil = {1.f, 0};
 	return ret;
 }
