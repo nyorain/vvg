@@ -9,7 +9,7 @@ function(add_shader name project)
 		WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
 		COMMENT "Building spirv shader - ${name}")
 
-	add_custom_target(shader_${name} ALL
+	add_custom_target(shader_${name}
 		DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${name}.spv")
 	add_dependencies(${project} shader_${name})
 endfunction(add_shader)
@@ -23,12 +23,12 @@ function(add_shader_header name project)
 			-i "${CMAKE_CURRENT_BINARY_DIR}/${name}.spv"
 			-o "${CMAKE_CURRENT_SOURCE_DIR}/headers/${name}.h"
 			-n ${name}_data
-			-s 32 
+			-s 32
 		DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${name}.spv"
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/headers"
 		COMMENT "Transforming spirv ${name} into C header")
 
-	add_custom_target(shader_header_${name} ALL
+	add_custom_target(shader_header_${name} 
 		DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/headers/${name}.spv.h")
 	add_dependencies(shader_header_${name} bintoheader)
 	add_dependencies(shader_header_${name} shader_${name})

@@ -435,11 +435,11 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 			scissor.xform[2]) / fringe;
 		scissorMat[3][3] = std::sqrt(scissor.xform[1]*scissor.xform[1] + scissor.xform[3]*
 			scissor.xform[3]) / fringe;
-
-		scissorMat[0][3] = paint.radius;
-		scissorMat[1][3] = paint.feather;
-		scissorMat[2][3] = strokeWidth;
 	}
+	
+	scissorMat[0][3] = paint.radius;
+	scissorMat[1][3] = paint.feather;
+	scissorMat[2][3] = strokeWidth;
 
 	std::memcpy(&data.uniformData.scissorMat, &scissorMat, sizeof(scissorMat));
 
@@ -453,6 +453,9 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 	paintMat[2][0] = invxform[4];
 	paintMat[2][1] = invxform[5];
 	paintMat[2][2] = 1.0f;
+
+	paintMat[3][0] = paint.extent[0];
+	paintMat[3][1] = paint.extent[1];
 
 	//strokeMult
 	paintMat[0][3] = (strokeWidth * 0.5f + fringe * 0.5f) / fringe;

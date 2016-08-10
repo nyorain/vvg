@@ -90,10 +90,17 @@ void main()
 	else if(ubo.type == TYPE_GRADIENT)
 	{
 		vec2 pt = (mat3(ubo.paintMat) * vec3(ipos, 1.0)).xy;
+		// vec2 pt = ipos;
 		float ft = ubo.scissorMat[1][3];
-		float fac = sdroundrect(pt, vec2(ubo.paintMat[3]),
-			ubo.scissorMat[0][3]) / ubo.scissorMat[1][3];
-		ocolor = mix(ubo.innerColor, ubo.outerColor, clamp(0.5 + fac, 0.0, 1.0));
+		// float fac = sdroundrect(pt, vec2(ubo.paintMat[3]), ubo.scissorMat[0][3]) / ft;
+		// ocolor = mix(ubo.innerColor, ubo.outerColor, clamp(0.5 + fac, 0.0, 1.0));
+		// // ocolor = vec4(1.0, 0.0, 1.0, 1.0);
+		//
+		vec2 extent = vec2(ubo.paintMat[3][0], ubo.paintMat[3][1]);
+		float radius = ubo.scissorMat[0][3];
+		float d = clamp((sdroundrect(pt, extent, radius) + ft*0.5) / ft, 0.0, 1.0);
+		ocolor = mix(ubo.innerColor,ubo.outerColor,d);
+		// ocolor = vec4(radius, extent.x, extent.y, 1.0);
 		if(edgeAntiAlias) ocolor *= strokeAlpha;
 	}
 	else if(ubo.type == TYPE_TEXTURE)

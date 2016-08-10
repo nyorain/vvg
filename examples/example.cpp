@@ -55,6 +55,7 @@ int main()
 
 		//render
 		nvgBeginFrame(nvgContext, width, height, width / (float)height);
+		nvgBeginPath(nvgContext);
 		nvgMoveTo(nvgContext, 10, 10);
 		nvgLineTo(nvgContext, 10, 400);
 		nvgLineTo(nvgContext, 100, 400);
@@ -75,6 +76,16 @@ int main()
 		nvgFontSize(nvgContext, 30.f);
 		nvgFontBlur(nvgContext, .2f);
 		nvgText(nvgContext, 10, height - 20, fpsString.c_str(), nullptr);
+
+		nvgBeginPath(nvgContext);
+		nvgRect(nvgContext, 700, 400, 100, 50);
+		// auto paint = nvgRadialGradient(nvgContext, 750, 425,20, 50, nvgRGB(0, 0, 200), nvgRGB(200, 200, 0));
+		// auto paint = nvgRadialGradient(nvgContext, 0.0, 0.0, 0.2, 100.0, nvgRGB(0, 0, 200), nvgRGB(200, 200, 0));
+		auto paint = nvgLinearGradient(nvgContext, 700, 400, 800, 450, nvgRGB(0, 0, 200), nvgRGB(200, 200, 0));
+		nvgFillPaint(nvgContext, paint);
+		// nvgFillColor(nvgContext, nvgRGBA(200, 200, 0, 200));
+		nvgClosePath(nvgContext);
+		nvgFill(nvgContext);
 
 		nvgEndFrame(nvgContext);
 
