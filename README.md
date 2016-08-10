@@ -10,7 +10,6 @@ The implementation itself is written in C++14 and uses the [vpp] library. It als
 to include the compiles spirv binaries directly into the source code. See for example [src/shader/headers/fill.frag.h].
 
 Currently vvg is in an pre-alpha state, but the first alpha is expected to be released soon. Note that it is not well tested yet, so there will be probably bugs and issues on different drivers. Was only tested/developed using MinGW64 (gcc 5/6) with an AMD R9 270x.
-The example only has support for Windows at the moment (since it creates a window for rendering).
 Any bug reports, contributions and ideas are highly appreciated.
 
 If you make a pull request, do not forget to append yourself to the contributors section, no matter how small the actual contribution is.
@@ -30,10 +29,14 @@ vvg is only the backend).
 For the C++ api make sure that the [vpp] headers are in your include path.
 For the C api make sure that you include vulkan.h BEFORE including the vvg header. You still have to link with [vpp].
 
+For an example how to use it see [examples/example.cpp]. 
+It has only support for Windows at the moment (since it creates a window for rendering).
+
 ## Contributors
 
 *nyorain*
 
+[examples/example.cpp]: examples/example.cpp
 [vulkan]: https://www.khronos.org/vulkan/
 [high level interface]: src/nanovg_vk.h
 [nanovg_vk.h]: src/nanovg_vk.h
