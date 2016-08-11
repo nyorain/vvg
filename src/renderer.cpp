@@ -7,6 +7,8 @@
 #include <vpp/graphicsPipeline.hpp>
 #include <vpp/swapChain.hpp>
 #include <vpp/framebuffer.hpp>
+#include <vpp/queue.hpp>
+#include <vpp/submit.hpp>
 #include <vpp/vk.hpp>
 
 // stl
@@ -105,7 +107,8 @@ namespace vvg
 {
 
 //Renderer
-Renderer::Renderer(const vpp::SwapChain& swapChain) : swapChain_(&swapChain)
+Renderer::Renderer(const vpp::SwapChain& swapChain)
+	: vpp::Resource(swapChain.device()), swapChain_(&swapChain)
 {
 	initRenderPass(swapChain.device(), swapChain.format());
 	init();
@@ -121,6 +124,15 @@ Renderer::Renderer(const vpp::SwapChain& swapChain) : swapChain_(&swapChain)
 
 	vpp::SwapChainRenderer::CreateInfo info {renderPass_, 0, {{attachmentInfo}}};
 	renderer_ = {swapChain, info, std::move(impl)};
+}
+
+Renderer::Renderer(const vpp::Framebuffer& framebuffer, vk::RenderPass rp)
+	: vpp::Resource(framebuffer.device()), framebuffer_(&framebuffer), renderPassHandle_(rp)
+{
+	init();
+
+	renderQueue_ = framebuffer.device().queue(vk::QueueBits::graphics);
+	commandBuffer_ = framebuffer.device().commandProvider().get(renderQueue_->family());
 }
 
 
@@ -163,7 +175,7 @@ void Renderer::init()
 	pipelineLayout_ = {device(), {descriptorLayout_}};
 
 	//create the graphics pipeline
-	vpp::GraphicsPipelineBuilder builder(device(), renderPass_);
+	vpp::GraphicsPipelineBuilder builder(device(), vkRenderPass());
 	builder.dynamicStates = {vk::DynamicState::viewport, vk::DynamicState::scissor};
 	builder.states.rasterization.cullMode = vk::CullModeBits::none;
 	builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleFan;
@@ -237,6 +249,8 @@ void Renderer::cancel()
 
 void Renderer::flush()
 {
+	if(drawDatas_.empty()) return;
+
 	//allocate buffers
 	auto uniformSize = sizeof(UniformData) * drawDatas_.size();
 	if(uniformBuffer_.size() < uniformSize)
@@ -309,7 +323,50 @@ void Renderer::flush()
 	vupdate.apply()->finish();
 
 	//render
-	renderer_.renderBlock();
+	if(swapChain_)
+	{
+		renderer_.renderBlock();
+	}
+	else
+	{
+		vk::beginCommandBuffer(commandBuffer_, {});
+
+		vk::ClearValue clearValues[2] {};
+		clearValues[0].color = {0.f, 0.f, 0.f, 1.0f};
+		clearValues[1].depthStencil = {1.f, 0};
+
+		auto size = framebuffer_->size();
+
+		vk::RenderPassBeginInfo beginInfo;
+		beginInfo.renderPass = vkRenderPass();
+		beginInfo.renderArea = {{0, 0}, {size.width, size.height}};
+		beginInfo.clearValueCount = 2;
+		beginInfo.pClearValues = clearValues;
+		beginInfo.framebuffer = *framebuffer_;
+		vk::cmdBeginRenderPass(commandBuffer_, beginInfo, vk::SubpassContents::eInline);
+
+		vk::Viewport viewport;
+		viewport.width = size.width;
+		viewport.height = size.height;
+		viewport.minDepth = 0.f;
+		viewport.maxDepth = 1.f;
+		vk::cmdSetViewport(commandBuffer_, 0, 1, viewport);
+
+		//Update dynamic scissor state
+		vk::Rect2D scissor;
+		scissor.extent = {size.width, size.height};
+		scissor.offset = {0, 0};
+		vk::cmdSetScissor(commandBuffer_, 0, 1, scissor);
+
+		record(commandBuffer_);
+
+		vk::cmdEndRenderPass(commandBuffer_);
+		vk::endCommandBuffer(commandBuffer_);
+
+		device().submitManager().add(*renderQueue_, commandBuffer_);
+		device().submitManager().submit(*renderQueue_);
+		device().waitIdle();
+	}
 
 	//cleanup
 	vertices_.clear();
@@ -436,7 +493,7 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 		scissorMat[3][3] = std::sqrt(scissor.xform[1]*scissor.xform[1] + scissor.xform[3]*
 			scissor.xform[3]) / fringe;
 	}
-	
+
 	scissorMat[0][3] = paint.radius;
 	scissorMat[1][3] = paint.feather;
 	scissorMat[2][3] = strokeWidth;
@@ -799,6 +856,11 @@ NVGcontext* createContext(std::unique_ptr<Renderer> renderer)
 NVGcontext* createContext(const vpp::SwapChain& swapChain)
 {
 	return createContext(std::make_unique<Renderer>(swapChain));
+}
+
+NVGcontext* createContext(const vpp::Framebuffer& fb, vk::RenderPass rp)
+{
+	return createContext(std::make_unique<Renderer>(fb, rp));
 }
 
 void destroyContext(const NVGcontext& context)

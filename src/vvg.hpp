@@ -69,11 +69,15 @@ protected:
 ///it just stores all draw calls and only renders them once finish is called.
 ///It can either render on a vulkan SwapChain for which it uses the SwapChainRenderer class
 ///or directly on a framebuffer, then it uses a plain CommandBuffer.
-class Renderer : public vpp::ResourceReference<Renderer>
+class Renderer : public vpp::Resource
 {
 public:
 	Renderer() = default;
 	Renderer(const vpp::SwapChain& swapChain);
+
+	///Constructs the Renderer for a vulkan framebuffer that can be rendered to with the given
+	///render pass.
+	Renderer(const vpp::Framebuffer& fb, vk::RenderPass renderPass);
 	virtual ~Renderer();
 
 	///Returns the texture with the given id.
@@ -132,8 +136,8 @@ public:
 
 	const vpp::Framebuffer* framebuffer() const { return framebuffer_; }
 	const vpp::CommandBuffer& commandBuffer() const { return commandBuffer_; }
-
-	const auto& resourceRef() const { return renderPass_; } //renderPass since always valid
+	vk::RenderPass vkRenderPass() const
+		{ return swapChain_ ? renderPass_ : renderPassHandle_; }
 
 protected:
 	void init();
@@ -148,9 +152,12 @@ protected:
 protected:
 	const vpp::SwapChain* swapChain_ = nullptr; //if rendering on swapChain
 	vpp::SwapChainRenderer renderer_; //used if rendering on swapChain
+	vpp::RenderPass renderPass_; //for swapChain
 
 	const vpp::Framebuffer* framebuffer_ = nullptr; //if rendering into framebuffer
 	vpp::CommandBuffer commandBuffer_; //commandBuffer to submit if rendering into fb
+	const vpp::Queue* renderQueue_; //queue used for rendering if rendering into fb
+	vk::RenderPass renderPassHandle_; //for framebuffer
 
 	unsigned int texID_ = 0; //the currently highest texture id
 	std::vector<Texture> textures_;
@@ -165,7 +172,6 @@ protected:
 	unsigned int height_ {};
 
 	vpp::Sampler sampler_;
-	vpp::RenderPass renderPass_;
 
 	vpp::DescriptorPool descriptorPool_;
 	vpp::DescriptorSetLayout descriptorLayout_;
@@ -188,6 +194,9 @@ NVGcontext* createContext(std::unique_ptr<Renderer> renderer);
 
 ///Creates the nanovg context for a given SwapChain.
 NVGcontext* createContext(const vpp::SwapChain& swapChain);
+
+///Creates the nanovg context for a given Framebuffer and RenderPass.
+NVGcontext* createContext(const vpp::Framebuffer& fb, vk::RenderPass rp);
 
 ///Destroys a nanovg context that was created by this library.
 ///Note that passing a nanovg context that was not created by this library results in undefined
