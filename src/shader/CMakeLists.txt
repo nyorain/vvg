@@ -28,7 +28,7 @@ function(add_shader_header name project)
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/headers"
 		COMMENT "Transforming spirv ${name} into C header")
 
-	add_custom_target(shader_header_${name} 
+	add_custom_target(shader_header_${name}
 		DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/headers/${name}.spv.h")
 	add_dependencies(shader_header_${name} bintoheader)
 	add_dependencies(shader_header_${name} shader_${name})

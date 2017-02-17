@@ -12,8 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED on)
 #to disable ninja byproduct warning
 cmake_policy(SET CMP0058 NEW)
 
-#enable warnings
-#for msvc we first check if some level is set by default and replace it
+# enable warnings
+# for msvc we first check if some level is set by default and replace it
 if(MSVC)
   if(CMAKE_CXX_FLAGS MATCHES "/W[0-4]")
     string(REGEX REPLACE "/W[0-4]" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
