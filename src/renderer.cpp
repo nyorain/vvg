@@ -4,12 +4,14 @@
 
 // vpp
 #include <vpp/bufferOps.hpp>
-#include <vpp/graphicsPipeline.hpp>
-#include <vpp/swapChain.hpp>
+#include <vpp/pipeline.hpp>
+#include <vpp/swapchain.hpp>
 #include <vpp/framebuffer.hpp>
+#include <vpp/surface.hpp>
 #include <vpp/queue.hpp>
 #include <vpp/submit.hpp>
 #include <vpp/vk.hpp>
+#include <vpp/util/file.hpp>
 
 // stl
 #include <stdexcept>
@@ -18,13 +20,14 @@
 #include <iterator>
 
 // shader header
-#include "shader/headers/fill.frag.h"
-#include "shader/headers/fill.vert.h"
+#include "shader/fill.frag.h"
+#include "shader/fill.vert.h"
 
-namespace vvg
-{
+namespace vvg {
 
-//minimal shader types
+template<typename... T> constexpr void unused(T&&...) {}
+
+// minimal shader typedefs
 struct Vec2 { float x,y; };
 struct Vec3 { float x,y,z; };
 struct Vec4 { float x,y,z,w; };
@@ -33,8 +36,7 @@ using Mat2 = float[2][2];
 using Mat3 = float[3][3];
 using Mat4 = float[4][4];
 
-struct UniformData
-{
+struct UniformData {
 	Vec2 viewSize;
 	std::uint32_t type;
 	std::uint32_t texType;
@@ -44,16 +46,14 @@ struct UniformData
 	Mat4 paintMat;
 };
 
-struct Path
-{
+struct Path {
 	std::size_t fillOffset = 0;
 	std::size_t fillCount = 0;
 	std::size_t strokeOffset = 0;
 	std::size_t strokeCount = 0;
 };
 
-struct DrawData
-{
+struct DrawData {
 	vpp::DescriptorSet descriptorSet;
 	UniformData uniformData;
 	unsigned int texture = 0;
@@ -63,32 +63,31 @@ struct DrawData
 	std::size_t triangleCount = 0;
 };
 
-//The RenderBuilder implementation used to render on a swapChain.
-struct RenderImpl : public vpp::RendererBuilder
-{
+// The RenderBuilder implementation used to render on a swapchain.
+struct RenderImpl : public vpp::RendererBuilder {
 	std::vector<vk::ClearValue> clearValues(unsigned int id) override;
 	void build(unsigned int id, const vpp::RenderPassInstance& ini) override;
 	void frame(unsigned int id) override;
 
 	Renderer* renderer;
-	vpp::SwapChainRenderer* swapChainRenderer;
+	vpp::SwapchainRenderer* swapchainRenderer;
 };
 
-}
+} // namespace vvg
 
-namespace vpp
-{
+// vpp VulkanType specializations for our own shader types
+namespace vpp {
 
-template<> struct VulkanType<vvg::Vec2> : public VulkanTypeVec2 {};
-template<> struct VulkanType<vvg::Vec3> : public VulkanTypeVec3 {};
-template<> struct VulkanType<vvg::Vec4> : public VulkanTypeVec4 {};
-template<> struct VulkanType<vvg::Mat2> : public VulkanTypeMatrix<2, 2, true> {};
-template<> struct VulkanType<vvg::Mat3> : public VulkanTypeMatrix<3, 3, true> {};
-template<> struct VulkanType<vvg::Mat4> : public VulkanTypeMatrix<4, 4, true> {};
+template<> struct VulkanType<vvg::Vec2> : public VulkanTypeVec<2> {};
+template<> struct VulkanType<vvg::Vec3> : public VulkanTypeVec<3> {};
+template<> struct VulkanType<vvg::Vec4> : public VulkanTypeVec<4> {};
+template<> struct VulkanType<vvg::Mat2> : public VulkanTypeMat<2, 2, true> {};
+template<> struct VulkanType<vvg::Mat3> : public VulkanTypeMat<3, 3, true> {};
+template<> struct VulkanType<vvg::Mat4> : public VulkanTypeMat<4, 4, true> {};
 
-template<> struct VulkanType<vvg::UniformData>
-{
+template<> struct VulkanType<vvg::UniformData> {
 	static constexpr auto type = vpp::ShaderType::structure;
+	static constexpr auto align = true;
 	static constexpr auto members = std::make_tuple(
 		&vvg::UniformData::viewSize,
 		&vvg::UniformData::type,
@@ -103,35 +102,32 @@ template<> struct VulkanType<vvg::UniformData>
 }
 
 
-namespace vvg
-{
+namespace vvg {
 
 //Renderer
-Renderer::Renderer(const vpp::SwapChain& swapChain)
-	: vpp::Resource(swapChain.device()), swapChain_(&swapChain)
+Renderer::Renderer(const vpp::Swapchain& swapchain, const vpp::Queue* presentQueue)
+	: vpp::Resource(swapchain.device()), swapchain_(&swapchain), presentQueue_(presentQueue)
 {
-	initRenderPass(swapChain.device(), swapChain.format());
+	initRenderPass(swapchain.device(), swapchain.format());
 	init();
 
 	auto impl = std::make_unique<RenderImpl>();
 	impl->renderer = this;
-	impl->swapChainRenderer = &renderer_;
+	impl->swapchainRenderer = &renderer_;
 
 	auto attachmentInfo = vpp::ViewableImage::defaultDepth2D();
 	attachmentInfo.imgInfo.format = vk::Format::s8Uint;
 	attachmentInfo.viewInfo.format = vk::Format::s8Uint;
 	attachmentInfo.viewInfo.subresourceRange.aspectMask = vk::ImageAspectBits::stencil;
 
-	vpp::SwapChainRenderer::CreateInfo info {renderPass_, 0, {{attachmentInfo}}};
-	renderer_ = {swapChain, info, std::move(impl)};
+	vpp::SwapchainRenderer::CreateInfo info {renderPass_, 0, {{attachmentInfo}}};
+	renderer_ = {swapchain, info, std::move(impl)};
 }
 
 Renderer::Renderer(const vpp::Framebuffer& framebuffer, vk::RenderPass rp)
 	: vpp::Resource(framebuffer.device()), framebuffer_(&framebuffer), renderPassHandle_(rp)
 {
 	init();
-
-	renderQueue_ = framebuffer.device().queue(vk::QueueBits::graphics);
 	commandBuffer_ = framebuffer.device().commandProvider().get(renderQueue_->family());
 }
 
@@ -143,7 +139,21 @@ Renderer::~Renderer()
 
 void Renderer::init()
 {
-	//sampler
+	// queues
+	renderQueue_ = device().queue(vk::QueueBits::graphics);
+
+	if(swapchain_ && !presentQueue_) {
+		auto surface = swapchain_->vkSurface();
+		auto supported = vpp::supportedQueueFamilies(vkInstance(), surface, vkPhysicalDevice());
+		for(auto q : supported)
+			if((presentQueue_ = device().queue(q)))
+				break;
+
+		if(!presentQueue_)
+			throw std::runtime_error("vvg::Renderer::init: cannot find present queue");
+	}
+
+	// sampler
 	vk::SamplerCreateInfo samplerInfo;
 	samplerInfo.magFilter = vk::Filter::linear;
 	samplerInfo.minFilter = vk::Filter::linear;
@@ -162,9 +172,8 @@ void Renderer::init()
 	samplerInfo.unnormalizedCoordinates = false;
 	sampler_ = {device(), samplerInfo};
 
-	//descLayout
-	auto descriptorBindings  =
-	{
+	// descLayout
+	auto descriptorBindings  = {
 		vpp::descriptorBinding(vk::DescriptorType::uniformBuffer,
 			vk::ShaderStageBits::vertex | vk::ShaderStageBits::fragment),
 		vpp::descriptorBinding(vk::DescriptorType::combinedImageSampler,
@@ -172,27 +181,48 @@ void Renderer::init()
 	};
 
 	descriptorLayout_ = {device(), descriptorBindings};
-	pipelineLayout_ = {device(), {descriptorLayout_}};
+	pipelineLayout_ = {device(), {descriptorLayout_}, {}};
 
 	//create the graphics pipeline
-	vpp::GraphicsPipelineBuilder builder(device(), vkRenderPass());
-	builder.dynamicStates = {vk::DynamicState::viewport, vk::DynamicState::scissor};
-	builder.states.rasterization.cullMode = vk::CullModeBits::none;
-	builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleFan;
-	builder.states.blendAttachments[0].blendEnable = true;
-	builder.states.blendAttachments[0].colorBlendOp = vk::BlendOp::add;
-	builder.states.blendAttachments[0].srcColorBlendFactor = vk::BlendFactor::srcAlpha;
-	builder.states.blendAttachments[0].dstColorBlendFactor = vk::BlendFactor::oneMinusSrcAlpha;
-	builder.states.blendAttachments[0].srcAlphaBlendFactor = vk::BlendFactor::one;
-	builder.states.blendAttachments[0].dstAlphaBlendFactor = vk::BlendFactor::zero;
-	builder.states.blendAttachments[0].alphaBlendOp = vk::BlendOp::add;
+	// vpp::GraphicsPipelineBuilder builder(device(), vkRenderPass());
+	// builder.dynamicStates = {vk::DynamicState::viewport, vk::DynamicState::scissor};
+	// builder.states.rasterization.cullMode = vk::CullModeBits::none;
+	// builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleFan;
+	// builder.states.blendAttachments[0].blendEnable = true;
+	// builder.states.blendAttachments[0].colorBlendOp = vk::BlendOp::add;
+	// builder.states.blendAttachments[0].srcColorBlendFactor = vk::BlendFactor::srcAlpha;
+	// builder.states.blendAttachments[0].dstColorBlendFactor = vk::BlendFactor::oneMinusSrcAlpha;
+	// builder.states.blendAttachments[0].srcAlphaBlendFactor = vk::BlendFactor::one;
+	// builder.states.blendAttachments[0].dstAlphaBlendFactor = vk::BlendFactor::zero;
+	// builder.states.blendAttachments[0].alphaBlendOp = vk::BlendOp::add;
+	//
+	// vpp::VertexBufferLayout vertexLayout {{vk::Format::r32g32Sfloat, vk::Format::r32g32Sfloat}};
+	// builder.vertexBufferLayouts = {vertexLayout};
+	// builder.layout = pipelineLayout_;
+	//
+	// //shader
+	// //the fragment shader has a constant for antialiasing
+	// std::uint32_t antiAliasing = edgeAA_;
+	// vk::SpecializationMapEntry entry {0, 0, 4};
+	//
+	// vk::SpecializationInfo specInfo;
+	// specInfo.mapEntryCount = 1;
+	// specInfo.pMapEntries = &entry;
+	// specInfo.dataSize = 4;
+	// specInfo.pData = &antiAliasing;
+	//
+	// builder.shader.stage(fill_vert_data, {vk::ShaderStageBits::vertex});
+	// builder.shader.stage(fill_frag_data, {vk::ShaderStageBits::fragment, &specInfo});
+	//
+	// fanPipeline_ = builder.build();
+	//
+	// builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleStrip;
+	// stripPipeline_ = builder.build();
+	//
+	// builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleList;
+	// listPipeline_ = builder.build();
 
-	vpp::VertexBufferLayout vertexLayout {{vk::Format::r32g32Sfloat, vk::Format::r32g32Sfloat}};
-	builder.vertexBufferLayouts = {vertexLayout};
-	builder.layout = pipelineLayout_;
 
-	//shader
-	//the fragment shader has a constant for antialiasing
 	std::uint32_t antiAliasing = edgeAA_;
 	vk::SpecializationMapEntry entry {0, 0, 4};
 
@@ -202,16 +232,119 @@ void Renderer::init()
 	specInfo.dataSize = 4;
 	specInfo.pData = &antiAliasing;
 
-	builder.shader.stage(fill_vert_data, {vk::ShaderStageBits::vertex});
-	builder.shader.stage(fill_frag_data, {vk::ShaderStageBits::fragment, &specInfo});
+	vpp::ShaderModule vertexShader(device(), fill_vert_data);
+	vpp::ShaderModule fragmentShader(device(), fill_frag_data);
 
-	fanPipeline_ = builder.build();
+	vpp::ShaderProgram shaderStages({
+		{vertexShader, vk::ShaderStageBits::vertex},
+		{fragmentShader, vk::ShaderStageBits::fragment, &specInfo}
+	});
 
-	builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleStrip;
-	stripPipeline_ = builder.build();
+	vk::GraphicsPipelineCreateInfo pipelineInfo;
+	pipelineInfo.renderPass = vkRenderPass();
+	pipelineInfo.layout = pipelineLayout_;
 
-	builder.states.inputAssembly.topology = vk::PrimitiveTopology::triangleList;
-	listPipeline_ = builder.build();
+	pipelineInfo.stageCount = shaderStages.vkStageInfos().size();
+	pipelineInfo.pStages = shaderStages.vkStageInfos().data();
+
+	constexpr auto stride = (2 * 4) * 2; // 2 pos floats, 2 uv floats
+	vk::VertexInputBindingDescription bufferBinding {0, stride, vk::VertexInputRate::vertex};
+
+	// vertex position, uv attributes
+	vk::VertexInputAttributeDescription attributes[2];
+	attributes[0].format = vk::Format::r32g32Sfloat;
+
+	attributes[1].location = 1;
+	attributes[1].format = vk::Format::r32g32Sfloat;
+	attributes[1].offset = 2 * 4; // offset pos (vec2f)
+
+	vk::PipelineVertexInputStateCreateInfo vertexInfo;
+	vertexInfo.vertexBindingDescriptionCount = 1;
+	vertexInfo.pVertexBindingDescriptions = &bufferBinding;
+	vertexInfo.vertexAttributeDescriptionCount = 2;
+	vertexInfo.pVertexAttributeDescriptions = attributes;
+	pipelineInfo.pVertexInputState = &vertexInfo;
+
+	vk::PipelineInputAssemblyStateCreateInfo assemblyInfo;
+	assemblyInfo.topology = vk::PrimitiveTopology::triangleList;
+	pipelineInfo.pInputAssemblyState = &assemblyInfo;
+
+	vk::PipelineRasterizationStateCreateInfo rasterizationInfo;
+	rasterizationInfo.polygonMode = vk::PolygonMode::fill;
+	rasterizationInfo.cullMode = vk::CullModeBits::none;
+	rasterizationInfo.frontFace = vk::FrontFace::counterClockwise;
+	rasterizationInfo.depthClampEnable = true;
+	rasterizationInfo.rasterizerDiscardEnable = false;
+	rasterizationInfo.depthBiasEnable = false;
+	rasterizationInfo.lineWidth = 1.f;
+	pipelineInfo.pRasterizationState = &rasterizationInfo;
+
+	vk::PipelineMultisampleStateCreateInfo multisampleInfo;
+	multisampleInfo.rasterizationSamples = vk::SampleCountBits::e1;
+	pipelineInfo.pMultisampleState = &multisampleInfo;
+
+	vk::PipelineColorBlendAttachmentState blendAttachment;
+	blendAttachment.blendEnable = true;
+	blendAttachment.alphaBlendOp = vk::BlendOp::add;
+	blendAttachment.colorBlendOp = vk::BlendOp::add;
+	blendAttachment.srcColorBlendFactor = vk::BlendFactor::srcAlpha;
+	blendAttachment.dstColorBlendFactor = vk::BlendFactor::oneMinusSrcAlpha;
+	blendAttachment.srcAlphaBlendFactor = vk::BlendFactor::one;
+	blendAttachment.dstAlphaBlendFactor = vk::BlendFactor::zero;
+	blendAttachment.colorWriteMask =
+		vk::ColorComponentBits::r |
+		vk::ColorComponentBits::g |
+		vk::ColorComponentBits::b |
+		vk::ColorComponentBits::a;
+
+	vk::PipelineColorBlendStateCreateInfo blendInfo;
+	blendInfo.attachmentCount = 1;
+	blendInfo.pAttachments = &blendAttachment;
+	pipelineInfo.pColorBlendState = &blendInfo;
+
+	vk::PipelineViewportStateCreateInfo viewportInfo;
+	viewportInfo.scissorCount = 1;
+	viewportInfo.viewportCount = 1;
+	pipelineInfo.pViewportState = &viewportInfo;
+
+	vk::PipelineDepthStencilStateCreateInfo depthStencilInfo;
+	pipelineInfo.pDepthStencilState = &depthStencilInfo;
+
+	constexpr auto dynStates = {vk::DynamicState::viewport, vk::DynamicState::scissor};
+
+	vk::PipelineDynamicStateCreateInfo dynamicInfo;
+	dynamicInfo.dynamicStateCount = dynStates.size();
+	dynamicInfo.pDynamicStates = dynStates.begin();
+	pipelineInfo.pDynamicState = &dynamicInfo;
+
+	// copy for strip pipeline
+	auto stripInfo = pipelineInfo;
+	auto stripAssembly = assemblyInfo;
+	stripAssembly.topology = vk::PrimitiveTopology::triangleStrip;
+	stripInfo.pInputAssemblyState = &stripAssembly;
+	stripInfo.basePipelineIndex = 0;
+
+	// copy for fan pipelien
+	auto fanInfo = pipelineInfo;
+	auto fanAssembly = assemblyInfo;
+	fanAssembly.topology = vk::PrimitiveTopology::triangleFan;
+	fanInfo.pInputAssemblyState = &fanAssembly;
+	fanInfo.basePipelineIndex = 0;
+
+	constexpr auto cacheName = "grapihcsPipelineCache.bin";
+
+	vpp::PipelineCache cache;
+	if(vpp::fileExists(cacheName)) cache = {device(), cacheName};
+	else cache = {device()};
+	auto pipelines = vk::createGraphicsPipelines(device(), cache,
+		{pipelineInfo, stripInfo, fanInfo});
+
+	listPipeline_ = {device(), pipelines[0]};
+	stripPipeline_ = {device(), pipelines[1]};
+	fanPipeline_ = {device(), pipelines[2]};
+
+	// save the cache to the file we tried to load it from
+	vpp::save(cache, cacheName);
 }
 
 unsigned int Renderer::createTexture(vk::Format format, unsigned int w, unsigned int h,
@@ -235,7 +368,7 @@ bool Renderer::deleteTexture(unsigned int id)
 
 void Renderer::start(unsigned int width, unsigned int height)
 {
-	//store (and set) viewport in some way
+	// store (and set) viewport in some way
 	width_ = width;
 	height_ = height;
 
@@ -251,28 +384,27 @@ void Renderer::flush()
 {
 	if(drawDatas_.empty()) return;
 
-	//allocate buffers
+	// allocate buffers
 	auto uniformSize = sizeof(UniformData) * drawDatas_.size();
-	if(uniformBuffer_.size() < uniformSize)
-	{
+	auto bits = device().memoryTypeBits(vk::MemoryPropertyBits::hostVisible);
+
+	if(uniformBuffer_.memorySize() < uniformSize) {
 		vk::BufferCreateInfo bufInfo;
 		bufInfo.usage = vk::BufferUsageBits::uniformBuffer;
 		bufInfo.size = uniformSize;
-		uniformBuffer_ = vpp::Buffer(device(), bufInfo, vk::MemoryPropertyBits::hostVisible);
+		uniformBuffer_ = {device(), bufInfo, bits};
 	}
 
 	auto vertexSize = vertices_.size() * sizeof(NVGvertex);
-	if(vertexBuffer_.size() < vertexSize)
-	{
+	if(vertexBuffer_.memorySize() < vertexSize) {
 		vk::BufferCreateInfo bufInfo;
 		bufInfo.usage = vk::BufferUsageBits::vertexBuffer;
 		bufInfo.size = vertexSize;
-		vertexBuffer_ = vpp::Buffer(device(), bufInfo, vk::MemoryPropertyBits::hostVisible);
+		vertexBuffer_ = {device(), bufInfo, bits};
 	}
 
-	//descriptorPool
-	if(drawDatas_.size() > descriptorPoolSize_)
-	{
+	// descriptorPool
+	if(drawDatas_.size() > descriptorPoolSize_) {
 		vk::DescriptorPoolSize typeCounts[2];
 		typeCounts[0].type = vk::DescriptorType::uniformBuffer;
 		typeCounts[0].descriptorCount = drawDatas_.size();
@@ -287,28 +419,24 @@ void Renderer::flush()
 
 		descriptorPool_ = {device(), poolInfo};
 		descriptorPoolSize_ = drawDatas_.size();
-	}
-	else if(descriptorPool_)
-	{
+	} else if(descriptorPool_) {
 		vk::resetDescriptorPool(device(), descriptorPool_, {});
 	}
 
-	//update
+	// update
 	vpp::BufferUpdate update(uniformBuffer_, vpp::BufferLayout::std140);
-	for(auto& data : drawDatas_)
-	{
+	for(auto& data : drawDatas_) {
 		update.alignUniform();
 
 		auto offset = update.offset();
-		update.add(data.uniformData);
+		update.add(vpp::raw(data.uniformData, 1)); // TODO
 
 		data.descriptorSet = {descriptorLayout_, descriptorPool_};
 
 		vpp::DescriptorSetUpdate descUpdate(data.descriptorSet);
 		descUpdate.uniform({{uniformBuffer_, offset, sizeof(UniformData)}});
 
-		if(data.texture != 0)
-		{
+		if(data.texture != 0) {
 			auto* tex = texture(data.texture);
 			auto layout = vk::ImageLayout::general; //XXX
 			descUpdate.imageSampler({{{}, tex->viewableImage().vkImageView(), layout}});
@@ -323,12 +451,9 @@ void Renderer::flush()
 	vupdate.apply()->finish();
 
 	//render
-	if(swapChain_)
-	{
-		renderer_.renderBlock();
-	}
-	else
-	{
+	if(swapchain_) {
+		renderer_.renderBlock(*presentQueue_);
+	} else {
 		vk::beginCommandBuffer(commandBuffer_, {});
 
 		vk::ClearValue clearValues[2] {};
@@ -363,9 +488,9 @@ void Renderer::flush()
 		vk::cmdEndRenderPass(commandBuffer_);
 		vk::endCommandBuffer(commandBuffer_);
 
-		device().submitManager().add(*renderQueue_, commandBuffer_);
-		device().submitManager().submit(*renderQueue_);
-		device().waitIdle();
+		vpp::CommandExecutionState state;
+		device().submitManager().add(*renderQueue_, {commandBuffer_}, &state);
+		state.wait();
 	}
 
 	//cleanup
@@ -374,8 +499,9 @@ void Renderer::flush()
 }
 
 void Renderer::fill(const NVGpaint& paint, const NVGscissor& scissor, float fringe,
-	const float* bounds, const vpp::Range<NVGpath>& paths)
+	const float* bounds, nytl::Span<const NVGpath> paths)
 {
+	unused(bounds);
 	auto& drawData = parsePaint(paint, scissor, fringe, fringe);
 	drawData.paths.reserve(paths.size());
 
@@ -395,7 +521,7 @@ void Renderer::fill(const NVGpaint& paint, const NVGscissor& scissor, float frin
 	}
 }
 void Renderer::stroke(const NVGpaint& paint, const NVGscissor& scissor, float fringe,
-	float strokeWidth, const vpp::Range<NVGpath>& paths)
+	float strokeWidth, nytl::Span<const NVGpath> paths)
 {
 	auto& drawData = parsePaint(paint, scissor, fringe, strokeWidth);
 	drawData.paths.reserve(paths.size());
@@ -409,7 +535,7 @@ void Renderer::stroke(const NVGpaint& paint, const NVGscissor& scissor, float fr
 	}
 }
 void Renderer::triangles(const NVGpaint& paint, const NVGscissor& scissor,
-	const vpp::Range<NVGvertex>& verts)
+	nytl::Span<const NVGvertex> verts)
 {
 	auto& drawData = parsePaint(paint, scissor, 1.f, 1.f);
 
@@ -434,8 +560,7 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 	auto& data = drawDatas_.back();
 	data.uniformData.viewSize = {float(width_), float(height_)};
 
-	if(paint.image)
-	{
+	if(paint.image) {
 		auto* tex = texture(paint.image);
 
 		auto formatID = (tex->format() == vk::Format::r8g8b8a8Unorm) ? texTypeRGBA : texTypeA;
@@ -443,14 +568,10 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 		data.uniformData.texType = formatID;
 
 		data.texture = paint.image;
-	}
-	else if(std::memcmp(&paint.innerColor, &paint.outerColor, sizeof(paint.innerColor)) == 0)
-	{
+	} else if(std::memcmp(&paint.innerColor, &paint.outerColor, sizeof(paint.innerColor)) == 0) {
 		data.uniformData.type = typeColor;
 		data.uniformData.texType = 0u;
-	}
-	else
-	{
+	} else {
 		data.uniformData.type = typeGradient;
 		data.uniformData.texType = 0u;
 	}
@@ -464,15 +585,12 @@ DrawData& Renderer::parsePaint(const NVGpaint& paint, const NVGscissor& scissor,
 
 	//scissor
 	float scissorMat[4][4] {};
-	if (scissor.extent[0] < -0.5f || scissor.extent[1] < -0.5f)
-	{
+	if (scissor.extent[0] < -0.5f || scissor.extent[1] < -0.5f) {
 		scissorMat[3][0] = 1.0f;
 		scissorMat[3][1] = 1.0f;
 		scissorMat[3][2] = 1.0f;
 		scissorMat[3][3] = 1.0f;
-	}
-	else
-	{
+	} else {
 		nvgTransformInverse(invxform, scissor.xform);
 
 		scissorMat[0][0] = invxform[0];
@@ -549,22 +667,16 @@ void Renderer::record(vk::CommandBuffer cmdBuffer)
 		vk::cmdBindDescriptorSets(cmdBuffer, vk::PipelineBindPoint::graphics, pipelineLayout_,
 			0, {data.descriptorSet}, {});
 
-		for(auto& path : data.paths)
-		{
-			if(path.fillCount > 0)
-			{
-				if(bound != 1)
-				{
+		for(auto& path : data.paths) {
+			if(path.fillCount > 0) {
+				if(bound != 1) {
 					vk::cmdBindPipeline(cmdBuffer, vk::PipelineBindPoint::graphics, fanPipeline_);
 					bound = 1;
 				}
 
 				vk::cmdDraw(cmdBuffer, path.fillCount, 1, path.fillOffset, 0);
-			}
-			if(path.strokeCount > 0)
-			{
-				if(bound != 2)
-				{
+			} if(path.strokeCount > 0) {
+				if(bound != 2) {
 					vk::cmdBindPipeline(cmdBuffer, vk::PipelineBindPoint::graphics, stripPipeline_);
 					bound = 2;
 				}
@@ -573,10 +685,8 @@ void Renderer::record(vk::CommandBuffer cmdBuffer)
 			}
 		}
 
-		if(data.triangleCount > 0)
-		{
-			if(bound != 3)
-			{
+		if(data.triangleCount > 0) {
+			if(bound != 3) {
 				vk::cmdBindPipeline(cmdBuffer, vk::PipelineBindPoint::graphics, listPipeline_);
 				bound = 3;
 			}
@@ -655,30 +765,32 @@ Texture::Texture(const vpp::Device& dev, unsigned int xid, const vk::Extent2D& s
 
 	auto info = vpp::ViewableImage::defaultColor2D();
 	info.imgInfo.extent = extent;
-	info.imgInfo.initialLayout = vk::ImageLayout::preinitialized;
+	info.imgInfo.initialLayout = vk::ImageLayout::undefined;
 	info.imgInfo.tiling = vk::ImageTiling::linear;
 
 	info.imgInfo.format = format;
 	info.viewInfo.format = format;
 
 	info.imgInfo.usage = vk::ImageUsageBits::sampled;
-	info.memoryFlags = vk::MemoryPropertyBits::hostVisible;
+	info.memoryTypeBits = dev.memoryTypeBits(vk::MemoryPropertyBits::hostVisible);
 
 	// info.imgInfo.usage = vk::ImageUsageBits::transferDst | vk::ImageUsageBits::sampled;
 	viewableImage_ = {dev, info};
 
-	///TODO: remove finish here and check where the bug comes from. probably vpp submit.cpp
-	vpp::changeLayout(viewableImage_.image(), vk::ImageLayout::preinitialized,
-		vk::ImageLayout::general, vk::ImageAspectBits::color)->finish();
+	vpp::changeLayout(viewableImage_.image(), vk::ImageLayout::undefined,
+		vk::ImageLayout::general, {vk::ImageAspectBits::color, 0, 1, 0, 1})->finish();
 
+	vk::ImageLayout layout = vk::ImageLayout::general;
 	if(data)
-		vpp::fill(viewableImage_.image(), *data, format, vk::ImageLayout::general, extent,
-			{vk::ImageAspectBits::color, 0, 0})->finish();
+		vpp::fill(viewableImage_.image(), *data, format, layout, extent,
+			{vk::ImageAspectBits::color, 0, 1})->finish();
 }
 
 void Texture::update(const vk::Offset2D& offset, const vk::Extent2D& extent,
 	const std::uint8_t& data)
 {
+	unused(offset, extent);
+
 	//TODO: really only update the given offset/extent
 	//would need an extra data copy
 	//or modify vpp::fill(Image) to also accept non tightly packed data
@@ -686,39 +798,40 @@ void Texture::update(const vk::Offset2D& offset, const vk::Extent2D& extent,
 	// vk::Offset3D ioffset {offset.x, offset.y, 0};
 
 	vk::Extent3D iextent {width(), height(), 1};
-	fill(viewableImage_.image(), data, format(), vk::ImageLayout::general, iextent,
+	vk::ImageLayout layout = vk::ImageLayout::general;
+	fill(viewableImage_.image(), data, format(), layout, iextent,
 		{vk::ImageAspectBits::color, 0, 0})->finish();
 }
 
 
 //RenderImpl
-void RenderImpl::build(unsigned int id, const vpp::RenderPassInstance& ini)
+void RenderImpl::build(unsigned int, const vpp::RenderPassInstance& ini)
 {
 	renderer->record(ini.vkCommandBuffer());
 }
 
-std::vector<vk::ClearValue> RenderImpl::clearValues(unsigned int id)
+std::vector<vk::ClearValue> RenderImpl::clearValues(unsigned int)
 {
-	std::vector<vk::ClearValue> ret(2, vk::ClearValue{});
+	// TODO
+	std::vector<vk::ClearValue> ret(1, vk::ClearValue{});
 	ret[0].color = {0.f, 0.f, 0.f, 1.0f};
-	ret[1].depthStencil = {1.f, 0};
+	// ret[0].depthStencil = {1.f, 0};
 	return ret;
 }
 
 void RenderImpl::frame(unsigned int id)
 {
-	swapChainRenderer->record(id);
+	swapchainRenderer->record(id);
 }
 
 //class that derives vvg::Renderer for the C implementation.
 using NonOwnedDevicePtr = std::unique_ptr<vpp::NonOwned<vpp::Device>>;
-using NonOwnedSwapChainPtr = std::unique_ptr<vpp::NonOwned<vpp::SwapChain>>;
+using NonOwnedSwapchainPtr = std::unique_ptr<vpp::NonOwned<vpp::Swapchain>>;
 
-class RendererCImpl : public Renderer
-{
+class RendererCImpl : public Renderer {
 public:
-	RendererCImpl(NonOwnedDevicePtr dev, NonOwnedSwapChainPtr swapChain)
-		: Renderer(*swapChain), dev_(std::move(dev)), swapChain_(std::move(swapChain)) {}
+	RendererCImpl(NonOwnedDevicePtr dev, NonOwnedSwapchainPtr swapchain)
+		: Renderer(*swapchain), dev_(std::move(dev)), swapchain_(std::move(swapchain)) {}
 
 	virtual ~RendererCImpl()
 	{
@@ -728,14 +841,13 @@ public:
 
 protected:
 	NonOwnedDevicePtr dev_;
-	NonOwnedSwapChainPtr swapChain_;
+	NonOwnedSwapchainPtr swapchain_;
 };
 
-}
+} // namespace vvg
 
-//The NVGcontext backend implementation which just calls the Renderer/Texture member functions
-namespace
-{
+// The NVGcontext backend implementation which just calls the Renderer/Texture member functions
+namespace {
 
 vvg::Renderer& resolve(void* ptr)
 {
@@ -744,11 +856,13 @@ vvg::Renderer& resolve(void* ptr)
 
 int renderCreate(void* uptr)
 {
+	vvg::unused(uptr);
 	return 1;
 }
 
 int createTexture(void* uptr, int type, int w, int h, int imageFlags, const unsigned char* data)
 {
+	vvg::unused(uptr, type, imageFlags);
 	auto& renderer = resolve(uptr);
 	auto format = (type == NVG_TEXTURE_ALPHA) ? vk::Format::r8Unorm : vk::Format::r8g8b8a8Unorm;
 	return renderer.createTexture(format, w, h, data);
@@ -837,11 +951,10 @@ const NVGparams nvgContextImpl =
 	renderDelete
 };
 
-}
+} // anonymous util namespace
 
-//implementation of the C++ create api
-namespace vvg
-{
+// implementation of the C++ create api
+namespace vvg {
 
 NVGcontext* createContext(std::unique_ptr<Renderer> renderer)
 {
@@ -853,9 +966,9 @@ NVGcontext* createContext(std::unique_ptr<Renderer> renderer)
 	return ret;
 }
 
-NVGcontext* createContext(const vpp::SwapChain& swapChain)
+NVGcontext* createContext(const vpp::Swapchain& swapchain)
 {
-	return createContext(std::make_unique<Renderer>(swapChain));
+	return createContext(std::make_unique<Renderer>(swapchain));
 }
 
 NVGcontext* createContext(const vpp::Framebuffer& fb, vk::RenderPass rp)
@@ -881,26 +994,26 @@ Renderer& getRenderer(NVGcontext& context)
 
 }
 
-//implementation of the C api
+// implementation of the C api
 NVGcontext* vvgCreate(const VVGContextDescription* descr)
 {
 	auto vkInstance = (vk::Instance)descr->instance;
 	auto vkPhDev = (vk::PhysicalDevice)descr->phDev;
 	auto vkDev = (vk::Device)descr->device;
 	auto vkQueue = (vk::Queue)descr->queue;
-	auto vkSwapChain = (vk::SwapchainKHR)descr->swapchain;
+	auto vkSwapchain = (vk::SwapchainKHR)descr->swapchain;
 	auto vkFormat = (vk::Format)descr->swapchainFormat;
 	auto vkExtent = (const vk::Extent2D&)descr->swapchainSize;
 
 	vvg::NonOwnedDevicePtr dev(new vpp::NonOwned<vpp::Device>(vkInstance,
 		vkPhDev, vkDev, {{vkQueue, descr->queueFamily}}));
 
-	//NOTE that this constructs the swapchain with an invalid surface parameter and it
-	//can therefore not be reiszed.
-	vvg::NonOwnedSwapChainPtr swapChain(new vpp::NonOwned<vpp::SwapChain>(*dev,
-		vkSwapChain, {}, vkExtent, vkFormat));
+	// NOTE that this constructs the swapchain with an invalid surface parameter and it
+	// can therefore not be reiszed.
+	vvg::NonOwnedSwapchainPtr swapchain(new vpp::NonOwned<vpp::Swapchain>(*dev,
+		vkSwapchain, {}, vkExtent, vkFormat));
 
-	auto renderer = std::make_unique<vvg::RendererCImpl>(std::move(dev), std::move(swapChain));
+	auto renderer = std::make_unique<vvg::RendererCImpl>(std::move(dev), std::move(swapchain));
 	return vvg::createContext(std::move(renderer));
 }
 

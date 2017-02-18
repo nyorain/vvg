@@ -17,7 +17,7 @@ vpp::RenderPass initRenderPass(const vpp::Device& dev, vk::Format format);
 int main()
 {
 	//init vulkan stuff
-	//dont use a context here since we dont need surface/swapChain
+	//dont use a context here since we dont need surface/swapchain
 	//most of this is taken somehow from vpp/src/context.cpp
 
 	//instance
@@ -28,9 +28,10 @@ int main()
 	appInfo.engineVersion = 1;
 	appInfo.apiVersion = VK_MAKE_VERSION(1, 0, 21);
 
+	constexpr auto layer = "VK_LAYER_LUNARG_standard_validation";
 	vk::InstanceCreateInfo iniinfo;
-	iniinfo.enabledLayerCount = vpp::validationLayerNames.size();
-	iniinfo.ppEnabledLayerNames = vpp::validationLayerNames.data();
+	// iniinfo.enabledLayerCount = 1;
+	// iniinfo.ppEnabledLayerNames = &layer;
 	iniinfo.enabledExtensionCount = 0;
 	iniinfo.ppEnabledExtensionNames = nullptr;
 	iniinfo.pApplicationInfo = &appInfo;
@@ -55,8 +56,6 @@ int main()
 	vk::DeviceCreateInfo devinfo;
 	devinfo.queueCreateInfoCount = 1;
 	devinfo.pQueueCreateInfos = &queueInfo;
-	devinfo.enabledLayerCount = vpp::validationLayerNames.size();
-	devinfo.ppEnabledLayerNames = vpp::validationLayerNames.data();
 	devinfo.enabledExtensionCount = 0;
 	devinfo.ppEnabledExtensionNames = nullptr;
 
@@ -75,12 +74,12 @@ int main()
 	colorAttachment.imgInfo.format = vk::Format::r8g8b8a8Unorm;
 	colorAttachment.imgInfo.tiling = vk::ImageTiling::linear;
 	colorAttachment.viewInfo.format = vk::Format::r8g8b8a8Unorm;
-	colorAttachment.memoryFlags = vk::MemoryPropertyBits::hostVisible;
 
-	auto depthAttachment = vpp::ViewableImage::defaultDepth2D();
+	// colorAttachment.memoryTypeBits = dev.memoryTypeBits(vk::MemoryPropertyBits::hostVisible);
+	// auto depthAttachment = vpp::ViewableImage::defaultDepth2D();
 
 	vpp::Framebuffer framebuffer(dev, renderPass, {width, height},
-		{colorAttachment, depthAttachment});
+		{colorAttachment});
 
 	//create the nanovg context
 	auto nvgContext = vvg::createContext(framebuffer, renderPass);
@@ -101,15 +100,16 @@ int main()
 	vvg::destroyContext(*nvgContext);
 
 	//write the image to a file
-	auto ptr = vpp::retrieve(framebuffer.attachments()[0].image(), vk::ImageLayout::general,
-		vk::Format::r8g8b8a8Unorm, {width, height, 1}, {vk::ImageAspectBits::color, 0, 0});
-	auto& data = ptr->data();
-	return stbi_write_png("test.png", width, height, 4, &data, width * 4);
+	auto layout = vk::ImageLayout::presentSrcKHR;
+	auto ptr = vpp::retrieve(framebuffer.attachments()[0].image(), layout,
+		vk::Format::r8g8b8a8Unorm, {width, height, 1}, {vk::ImageAspectBits::color, 0, 1});
+	auto& data = *ptr->data().data();
+	return stbi_write_png("test1.png", width, height, 4, &data, width * 4);
 }
 
 vpp::RenderPass initRenderPass(const vpp::Device& dev, vk::Format format)
 {
-	vk::AttachmentDescription attachments[2] {};
+	vk::AttachmentDescription attachments[1] {};
 
 	//color from swapchain
 	attachments[0].format = format;
@@ -126,20 +126,20 @@ vpp::RenderPass initRenderPass(const vpp::Device& dev, vk::Format format)
 	colorReference.layout = vk::ImageLayout::colorAttachmentOptimal;
 
 	//depth from own depth stencil
-	attachments[1].format = vk::Format::d16UnormS8Uint;
-	attachments[1].samples = vk::SampleCountBits::e1;
-	attachments[1].loadOp = vk::AttachmentLoadOp::clear;
-	attachments[1].storeOp = vk::AttachmentStoreOp::store;
-	attachments[1].stencilLoadOp = vk::AttachmentLoadOp::dontCare;
-	attachments[1].stencilStoreOp = vk::AttachmentStoreOp::dontCare;
-	attachments[1].initialLayout = vk::ImageLayout::undefined;
-	attachments[1].finalLayout = vk::ImageLayout::undefined;
+	// attachments[1].format = vk::Format::d16UnormS8Uint;
+	// attachments[1].samples = vk::SampleCountBits::e1;
+	// attachments[1].loadOp = vk::AttachmentLoadOp::clear;
+	// attachments[1].storeOp = vk::AttachmentStoreOp::store;
+	// attachments[1].stencilLoadOp = vk::AttachmentLoadOp::dontCare;
+	// attachments[1].stencilStoreOp = vk::AttachmentStoreOp::dontCare;
+	// attachments[1].initialLayout = vk::ImageLayout::undefined;
+	// attachments[1].finalLayout = vk::ImageLayout::undefined;
 	// attachments[1].initialLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 	// attachments[1].finalLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 
-	vk::AttachmentReference depthReference;
-	depthReference.attachment = 1;
-	depthReference.layout = vk::ImageLayout::depthStencilAttachmentOptimal;
+	// vk::AttachmentReference depthReference;
+	// depthReference.attachment = 1;
+	// depthReference.layout = vk::ImageLayout::depthStencilAttachmentOptimal;
 
 	//only subpass
 	vk::SubpassDescription subpass;
@@ -150,12 +150,12 @@ vpp::RenderPass initRenderPass(const vpp::Device& dev, vk::Format format)
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorReference;
 	subpass.pResolveAttachments = nullptr;
-	subpass.pDepthStencilAttachment = &depthReference;
+	subpass.pDepthStencilAttachment = nullptr;
 	subpass.preserveAttachmentCount = 0;
 	subpass.pPreserveAttachments = nullptr;
 
 	vk::RenderPassCreateInfo renderPassInfo;
-	renderPassInfo.attachmentCount = 2;
+	renderPassInfo.attachmentCount = 1;
 	renderPassInfo.pAttachments = attachments;
 	renderPassInfo.subpassCount = 1;
 	renderPassInfo.pSubpasses = &subpass;

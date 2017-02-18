@@ -1,6 +1,6 @@
 #include <ios>
 
-// This example uses vpp to setup vulkan context and swapChain
+// This example uses vpp to setup vulkan context and swapchain
 #include <vpp/backend/win32.hpp>
 #include <vpp/queue.hpp>
 #include <vpp/utility/range.hpp>
@@ -26,7 +26,7 @@ int main()
 	auto vc = vpp::createContext(window, {width, height, {}}); //layers disabled
 
 	// The easy way to create a nanovg context directly from the vpp swapchain
-	auto nvgContext = vvg::createContext(vc.swapChain());
+	auto nvgContext = vvg::createContext(vc.swapchain());
 
 	// create a nanovg font for text and fps counter
 	auto font = nvgCreateFont(nvgContext, "sans", "Roboto-Regular.ttf");
@@ -174,9 +174,9 @@ HWND createWindow()
 // VVGContextDescription info;
 // info.device = (VkDevice)vulkanContext.device().vkDevice();
 // info.instance = (VkInstance)vulkanContext.vkInstance();
-// info.swapchain = (VkSwapchainKHR)vulkanContext.swapChain().vkHandle();
-// info.swapchainSize = vulkanContext.swapChain().size().vkHandle();
-// info.swapchainFormat = (VkFormat)vulkanContext.swapChain().format();
+// info.swapchain = (VkSwapchainKHR)vulkanContext.swapchain().vkHandle();
+// info.swapchainSize = vulkanContext.swapchain().size().vkHandle();
+// info.swapchainFormat = (VkFormat)vulkanContext.swapchain().format();
 // info.phDev = (VkPhysicalDevice)vulkanContext.device().vkPhysicalDevice();
 // info.queue = (VkQueue)vulkanContext.device().queues()[0]->vkHandle();
 // info.queueFamily = vulkanContext.device().queues()[0]->family();

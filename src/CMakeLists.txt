@@ -5,13 +5,16 @@ else()
 	add_library(vvg renderer.cpp nanovg.c)
 endif()
 
-add_dependencies(vvg vpp_ep)
+if(Depend)
+	add_dependencies(vvg vpp_ep)
+endif()
 
-#link to vulkan and vpp
-target_link_libraries(vvg vpp ${VULKAN_LIBRARY})
-target_include_directories(vvg PUBLIC ${VULKAN_INCLUDE_DIR})
+# link to vulkan and vpp
+find_package(Vulkan REQUIRED)
+target_link_libraries(vvg vpp ${Vulkan_LIBRARY})
+target_include_directories(vvg PUBLIC ${Vulkan_INCLUDE_DIR})
 
-#copy runtime files
+# copy runtime files
 add_custom_command(
 	TARGET vvg PRE_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
