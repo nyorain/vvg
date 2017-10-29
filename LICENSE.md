@@ -1,4 +1,4 @@
-## vgk and vpp
+## vvg and vpp
 
 Copyright © 2016 nyorain
 

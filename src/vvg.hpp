@@ -29,6 +29,7 @@ struct DrawData;
 /// Can be retrieved from the nanovg texture handle using the associated renderer.
 class Texture : public vpp::ResourceReference<Texture> {
 public:
+	Texture() = default;
 	Texture(const vpp::Device& dev, unsigned int xid, const vk::Extent2D& size,
 		vk::Format format, const std::uint8_t* data = nullptr);
 	~Texture() = default;
@@ -181,8 +182,10 @@ protected:
 	vpp::Pipeline listPipeline_;
 	unsigned int bound_ = 0;
 
-	//settings
-	bool edgeAA_ = true;
+	Texture dummyTexture_;
+
+	// settings
+	bool edgeAA_ = false;
 };
 
 /// Creates the nanovg context for the previoiusly created renderer object.

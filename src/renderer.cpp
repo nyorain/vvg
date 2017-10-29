@@ -13,6 +13,8 @@
 #include <vpp/vk.hpp>
 #include <vpp/util/file.hpp>
 
+#include <dlg/dlg.hpp>
+
 // stl
 #include <stdexcept>
 #include <cstring>
@@ -163,7 +165,7 @@ void Renderer::init()
 	samplerInfo.addressModeW = vk::SamplerAddressMode::clampToEdge;
 	samplerInfo.mipLodBias = 0;
 	samplerInfo.anisotropyEnable = true;
-	samplerInfo.maxAnisotropy = 8;
+	samplerInfo.maxAnisotropy = 1;
 	samplerInfo.compareEnable = false;
 	samplerInfo.compareOp = {};
 	samplerInfo.minLod = 0;
@@ -273,7 +275,7 @@ void Renderer::init()
 	rasterizationInfo.polygonMode = vk::PolygonMode::fill;
 	rasterizationInfo.cullMode = vk::CullModeBits::none;
 	rasterizationInfo.frontFace = vk::FrontFace::counterClockwise;
-	rasterizationInfo.depthClampEnable = true;
+	rasterizationInfo.depthClampEnable = false;
 	rasterizationInfo.rasterizerDiscardEnable = false;
 	rasterizationInfo.depthBiasEnable = false;
 	rasterizationInfo.lineWidth = 1.f;
@@ -345,6 +347,10 @@ void Renderer::init()
 
 	// save the cache to the file we tried to load it from
 	vpp::save(cache, cacheName);
+
+	// create a dummy image used for unbound image descriptors
+	// TODO: find out if this is actually needed or a bug in the layers
+	dummyTexture_ = {device(), (unsigned int) -1, {2, 2}, vk::Format::r8g8b8a8Unorm};
 }
 
 unsigned int Renderer::createTexture(vk::Format format, unsigned int w, unsigned int h,
@@ -382,7 +388,8 @@ void Renderer::cancel()
 
 void Renderer::flush()
 {
-	if(drawDatas_.empty()) return;
+	if(drawDatas_.empty())
+		return;
 
 	// allocate buffers
 	auto uniformSize = sizeof(UniformData) * drawDatas_.size();
@@ -436,11 +443,15 @@ void Renderer::flush()
 		vpp::DescriptorSetUpdate descUpdate(data.descriptorSet);
 		descUpdate.uniform({{uniformBuffer_, offset, sizeof(UniformData)}});
 
-		if(data.texture != 0) {
-			auto* tex = texture(data.texture);
-			auto layout = vk::ImageLayout::general; //XXX
-			descUpdate.imageSampler({{{}, tex->viewableImage().vkImageView(), layout}});
-		}
+		vk::ImageView iv = dummyTexture_.viewableImage().vkImageView();
+		dlg_assert(iv);
+		if(data.texture != 0)
+			iv = texture(data.texture)->viewableImage().vkImageView();
+
+		auto layout = vk::ImageLayout::general; //XXX
+		descUpdate.imageSampler({{{}, iv, layout}});
+
+		descUpdate.apply();
 	}
 
 	update.apply()->finish();
@@ -723,7 +734,7 @@ void Renderer::initRenderPass(const vpp::Device& dev, vk::Format attachment)
 	attachments[1].stencilLoadOp = vk::AttachmentLoadOp::dontCare;
 	attachments[1].stencilStoreOp = vk::AttachmentStoreOp::dontCare;
 	attachments[1].initialLayout = vk::ImageLayout::undefined;
-	attachments[1].finalLayout = vk::ImageLayout::undefined;
+	attachments[1].finalLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 	// attachments[1].initialLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 	// attachments[1].finalLayout = vk::ImageLayout::depthStencilAttachmentOptimal;
 

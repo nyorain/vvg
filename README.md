@@ -1,18 +1,19 @@
 ### Vulkan Vector Graphics
 
+__NOTE: currently not maintained (and not compiling), devlopement might be resumed in future though.
+Lacks many important features to implement the nanovg interface correctly.
+Might only be useful to you as starting point if you want to implement
+something like this yourself.__
+
 vvg is a __[nanovg]__ backend using the [vulkan] api licensed under the __MIT License__.
 It offers 2 interfaces:
 
 - A [high level interface] that can be accessed from plain C99 and just provides the nanovg backend.
-- A [lower level interface] written in C++14 that can be used for complex tasks and is perfectly integrated with vpp.
+- A [lower level interface] written in C++14 that can be used for complex tasks and is perfectly integrated with [vpp].
 
 The implementation itself is written in C++14 and uses the [vpp] library. It also makes use of the [bintoheader] tool
 to include the compiles spirv binaries directly into the source code. See for example [src/shader/headers/fill.frag.h].
-
-Currently vvg is in an pre-alpha state, but the first alpha is expected to be released soon. Note that it is not well tested yet, so there will be probably bugs and issues on different drivers. Was only tested/developed using MinGW64 (gcc 5/6) with an AMD R9 270x.
 Any bug reports, contributions and ideas are highly appreciated.
-
-If you make a pull request, do not forget to append yourself to the contributors section, no matter how small the actual contribution is.
 
 ### Usage
 
@@ -21,7 +22,7 @@ You can either compile vvg to a static or shared library or compile its single s
 and the [nanovg] source file with your program/library. Note that the implementation needs to be linked to the latest
 [vpp] if you choose to just built the implementation source togehter with you project.
 
-Building can be done using cmake. vvg has __no external dependencies except vulkan__ and will pull everyhting it needs itself.
+Building can be done using meson.
 
 Either install or copy the needed header ([nanovg_vk.h] for the C api or [vvg.hpp] for the C++ api) as
 well as the [nanovg] header which can also be found in the [src/] directory (nanovg.h, needed to actually draw something,
@@ -31,10 +32,6 @@ For the C api make sure that you include vulkan.h BEFORE including the vvg heade
 
 For an example how to use it see [examples/example.cpp]. 
 It has only support for Windows at the moment (since it creates a window for rendering).
-
-## Contributors
-
-*nyorain*
 
 [examples/example.cpp]: examples/example.cpp
 [vulkan]: https://www.khronos.org/vulkan/

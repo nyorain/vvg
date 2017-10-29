@@ -1,13 +1,16 @@
 #include <ny/ny.hpp>
+#include <ny/common/gl.hpp>
 #include <dlg/dlg.hpp>
-#include <vpp/swapchain.hpp>
-#include <vpp/debug.hpp>
-#include <vpp/device.hpp>
-#include <vpp/instance.hpp>
-#include <vvg.hpp>
-#include <nanovg.h>
+#include "nanovg.h"
 
-#define WithLayers
+// GL example for comparison with the vulkan example
+
+#define NANOVG_GL_IMPLEMENTATION 1
+#define NANOVG_GL3 1
+#define GL_GLEXT_PROTOTYPES
+#include <GL/gl.h>
+#include <GL/glext.h>
+#include "nanovg-gl.h"
 
 class MyWindowListener : public ny::WindowListener {
 public:
@@ -36,49 +39,25 @@ int main()
 
 	auto ac = backend.createAppContext();
 
-	// basic vpp init
-	auto iniExtensions = ac->vulkanExtensions();
-	iniExtensions.push_back(VK_EXT_DEBUG_REPORT_EXTENSION_NAME);
-	vk::ApplicationInfo appInfo ("vpp-intro", 1, "vpp", 1, VK_API_VERSION_1_0);
-	vk::InstanceCreateInfo instanceInfo;
-	instanceInfo.pApplicationInfo = &appInfo;
-	instanceInfo.enabledExtensionCount = iniExtensions.size();
-	instanceInfo.ppEnabledExtensionNames = iniExtensions.data();
-
-#ifdef WithLayers
-	constexpr auto layer = "VK_LAYER_LUNARG_standard_validation";
-	instanceInfo.enabledLayerCount = 1;
-	instanceInfo.ppEnabledLayerNames = &layer;
-#endif
-
-	vpp::Instance instance(instanceInfo);
-
-#ifdef WithLayers
-	vpp::DebugCallback debugCallback(instance);
-#endif
-
 	// ny init
 	auto run = true;
 
 	auto listener = MyWindowListener {};
 	listener.run = &run;
 
-	auto vkSurface = vk::SurfaceKHR {};
 	auto ws = ny::WindowSettings {};
-	ws.surface = ny::SurfaceType::vulkan;
+	ny::GlSurface* surf {};
+	ws.surface = ny::SurfaceType::gl;
 	ws.listener = &listener;
 	ws.size = {width, height};
-	ws.vulkan.instance = (VkInstance) instance.vkHandle();
-	ws.vulkan.storeSurface = &(std::uintptr_t&) (vkSurface);
+	ws.gl.storeSurface = &surf;
 	auto wc = ac->createWindowContext(ws);
 
-	// further vpp init
-	const vpp::Queue* presentQueue;
-	vpp::Device device(instance, vkSurface, presentQueue);
-	vpp::Swapchain swapchain(device, vkSurface, {width, height}, {});
+	auto context = ac->glSetup()->createContext();
+	context->makeCurrent(*surf);
 
 	// vvg setup
-	auto nvgContext = vvg::createContext(swapchain);
+	auto nvgContext = nvgCreateGL3(NVG_ANTIALIAS | NVG_DEBUG);
 	auto font = nvgCreateFont(nvgContext, "sans", "Roboto-Regular.ttf");
 
 	using Clock = std::chrono::high_resolution_clock;
@@ -90,6 +69,9 @@ int main()
 	while(run) {
 		if(!ac->dispatchEvents())
 			break;
+
+		glClearColor(0.f, 0.f, 0.f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
 
 		nvgBeginFrame(nvgContext, width, height, width / (float) height);
 
@@ -116,9 +98,13 @@ int main()
 		nvgText(nvgContext, 10, height - 20, fpsString.c_str(), nullptr);
 
 		nvgBeginPath(nvgContext);
+		nvgPathWinding(nvgContext, NVG_HOLE);
 		nvgRect(nvgContext, 700, 400, 300, 300);
 		nvgPathWinding(nvgContext, NVG_HOLE);
-		nvgRect(nvgContext, 750, 450, 50, 50);
+		// nvgRect(nvgContext, 750, 450, 50, 50);
+		// nvgPathWinding(nvgContext, NVG_SOLID);
+		// nvgRect(nvgContext, 750, 450, 50, 50);
+
 		// auto paint = nvgRadialGradient(nvgContext, 750, 425,20, 50, nvgRGB(0, 0, 200), nvgRGB(200, 200, 0));
 		// auto paint = nvgRadialGradient(nvgContext, 0.0, 0.0, 0.2, 100.0, nvgRGB(0, 0, 200), nvgRGB(200, 200, 0));
 		auto paint = nvgLinearGradient(nvgContext, 700, 400, 800, 450, nvgRGB(0, 0, 200), nvgRGB(200, 200, 0));
@@ -128,6 +114,7 @@ int main()
 		nvgFill(nvgContext);
 
 		nvgEndFrame(nvgContext);
+		surf->apply();
 
 		// only refresh frame timer every second
 		framesCount++;
@@ -138,5 +125,5 @@ int main()
 		}
 	}
 
-	vvg::destroyContext(*nvgContext);
+	nvgDeleteGL3(nvgContext);
 }
