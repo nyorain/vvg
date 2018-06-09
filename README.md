@@ -1,8 +1,9 @@
 ### Vulkan Vector Graphics
 
-__NOTE: currently not maintained (and not compiling).
+__Currently not maintained (and not compiling).
 Lacks many important features to implement the nanovg interface correctly and does not make efficient use of vulkan.
-Might only be useful to you as starting point if you want to implement something like this yourself.__
+Might only be useful to you as starting point if you want to implement a vulkan nanovg backend yourself (which is not a good idea imo now).
+I started [rvg](https://github.com/nyorain/rvg) as a more efficient and working retained mode alternative.__
 
 vvg is a __[nanovg]__ backend using the [vulkan] api licensed under the __MIT License__.
 It offers 2 interfaces:
